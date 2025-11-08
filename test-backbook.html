@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Back Book - Single Page Close</title>
+    <link rel="stylesheet" href="story-styles.css">
+</head>
+<body>
+    <div class="book-container">
+        <div class="left-page"></div>
+
+        <div class="page active" id="coverPage" data-page="cover">
+            <div class="book-cover">
+                <img
+                    class="book-cover-image"
+                    src="https://images.unsplash.com/photo-1507842217343-583bb7270b66?w=1200&h=800&fit=crop"
+                    alt="Test Back Book Cover"
+                    loading="eager"
+                >
+                <div class="cover-content">
+                    <h1 class="book-title">Test Back Book</h1>
+                    <div class="cover-subtitle">Single Page Closure Flow</div>
+                    <div class="tap-hint">Tap to Continue</div>
+                </div>
+                <div class="cover-footer">
+                    <div class="cover-author" id="coverAuthor">Written by You</div>
+                    <div class="cover-publish-date" id="coverPublishDate">Published —</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="page" id="singleStoryPage" data-page="story" data-page-type="ending" data-is-final="true">
+            <div class="page-content">
+                <div class="page-header">
+                    <span class="chapter-name">Single Moment</span>
+                </div>
+
+                <div class="story-content">
+                    <div class="story-text">
+                        <h3 style="color: #4a3f35; margin-bottom: 16px;">A Quiet Resolution</h3>
+                        <p>The book opens to a lone spread. A single decision awaits, inviting the reader to conclude the tale.</p>
+                        <p>When ready, choose to close the book and reveal the back cover credits.</p>
+                    </div>
+
+                    <div class="story-image">
+                        <img src="https://via.placeholder.com/600x400/556270/ffffff?text=Single+Page" alt="Single page illustration">
+                    </div>
+
+                    <div class="story-options">
+                        <button class="story-option" data-option="1" data-is-last="true">
+                            <span class="option-text">Close the book</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="page-back-content">
+                <div class="back-cover">
+                    <img
+                        id="backCoverImage"
+                        class="back-cover-image"
+                        src="https://images.unsplash.com/photo-1507842217343-583bb7270b66?w=1200&h=800&fit=crop"
+                        alt="Test Back Book Back Cover"
+                        loading="lazy"
+                    >
+                    <div class="back-cover-content">
+                        <div class="story-summary">
+                            <h1 class="back-cover-title" id="backBookTitle">Test Back Book</h1>
+                            <h2 class="summary-title">Summary</h2>
+                            <p class="summary-text" id="storySummary">
+                                This scenario demonstrates the shortest possible experience: a cover, a single story moment, and an immediate closure sequence revealing the back cover.
+                            </p>
+                        </div>
+
+                        <div class="book-metadata">
+                            <div class="metadata-section">
+                                <div class="metadata-label">Written by</div>
+                                <div class="metadata-value" id="backCoverAuthorValue">
+                                    <div class="author-line" id="backCoverPrimaryAuthor">You (Story Creator)</div>
+                                </div>
+                            </div>
+
+                            <div class="metadata-section">
+                                <div class="metadata-label">Published</div>
+                                <div class="metadata-value" id="publishDate">November 8, 2025</div>
+                            </div>
+
+                            <div class="metadata-section">
+                                <div class="metadata-label">Publisher</div>
+                                <div class="metadata-value">AI Story Engine</div>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="book-controls" id="bookControls">
+        <button class="control-button restart-button" id="restartButton">
+            <svg class="control-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="23 4 23 10 17 10"></polyline>
+                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+            </svg>
+            <span>Restart Book</span>
+        </button>
+        <button class="control-button export-button" id="exportButton">
+            <svg class="control-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                <polyline points="14 2 14 8 20 8"></polyline>
+                <line x1="12" y1="18" x2="12" y2="12"></line>
+                <line x1="9" y1="15" x2="12" y2="18"></line>
+                <line x1="15" y1="15" x2="12" y2="18"></line>
+            </svg>
+            <span>Export to PDF</span>
+        </button>
+    </div>
+
+    <script type="module" src="/src/story.ts"></script>
+</body>
+</html>
+

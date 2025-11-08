@@ -1,0 +1,25 @@
+{
+  "name": "ai-story-engine",
+  "version": "1.0.0",
+  "description": "Interactive AI-powered story engine with TypeScript and Vite",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "html2pdf.js": "^0.10.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3",
+    "vite": "^5.1.0"
+  },
+  "keywords": [
+    "ai",
+    "story-engine",
+    "typescript",
+    "vite"
+  ],
+  "license": "MIT"
+}

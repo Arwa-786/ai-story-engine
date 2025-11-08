@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Story Engine - Create Your Story</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>AI Story Engine</h1>
+            <p class="subtitle">Create your interactive story adventure</p>
+        </header>
+
+        <main class="creation-form">
+            <section class="form-section">
+                <div class="toggle-buttons">
+                    <button type="button" class="toggle-btn active" id="customToggle">Custom</button>
+                    <button type="button" class="toggle-btn" id="randomToggle">Random</button>
+                </div>
+            </section>
+
+            <section class="form-section" id="customSection">
+                <textarea 
+                    id="storyDescription" 
+                    class="story-input" 
+                    placeholder="Describe your story idea... What kind of adventure do you want to create?"
+                ></textarea>
+            </section>
+
+            <section class="form-section hidden" id="randomSection">
+                <div class="genre-grid">
+                    <label class="genre-option">
+                        <input type="radio" name="genre" value="adventure">
+                        <div class="genre-card">
+                            <span class="genre-icon">🗺️</span>
+                            <span class="genre-name">Adventure</span>
+                            <span class="genre-desc">Exploring, quests, exciting journeys</span>
+                        </div>
+                    </label>
+                    <label class="genre-option">
+                        <input type="radio" name="genre" value="fantasy">
+                        <div class="genre-card">
+                            <span class="genre-icon">🧙</span>
+                            <span class="genre-name">Fantasy</span>
+                            <span class="genre-desc">Magic, mythical creatures, imaginary worlds</span>
+                        </div>
+                    </label>
+                    <label class="genre-option">
+                        <input type="radio" name="genre" value="scifi">
+                        <div class="genre-card">
+                            <span class="genre-icon">🚀</span>
+                            <span class="genre-name">Science Fiction</span>
+                            <span class="genre-desc">Space, future, technology</span>
+                        </div>
+                    </label>
+                    <label class="genre-option">
+                        <input type="radio" name="genre" value="horror">
+                        <div class="genre-card">
+                            <span class="genre-icon">👻</span>
+                            <span class="genre-name">Horror</span>
+                            <span class="genre-desc">Scary, creepy, supernatural</span>
+                        </div>
+                    </label>
+                    <label class="genre-option">
+                        <input type="radio" name="genre" value="mystery">
+                        <div class="genre-card">
+                            <span class="genre-icon">🔍</span>
+                            <span class="genre-name">Mystery</span>
+                            <span class="genre-desc">Solving puzzles, crimes, secrets</span>
+                        </div>
+                    </label>
+                    <label class="genre-option">
+                        <input type="radio" name="genre" value="romance">
+                        <div class="genre-card">
+                            <span class="genre-icon">💕</span>
+                            <span class="genre-name">Romance</span>
+                            <span class="genre-desc">Love stories, relationships</span>
+                        </div>
+                    </label>
+                    <label class="genre-option">
+                        <input type="radio" name="genre" value="comedy">
+                        <div class="genre-card">
+                            <span class="genre-icon">😄</span>
+                            <span class="genre-name">Comedy</span>
+                            <span class="genre-desc">Funny, light-hearted, silly</span>
+                        </div>
+                    </label>
+                    <label class="genre-option">
+                        <input type="radio" name="genre" value="drama">
+                        <div class="genre-card">
+                            <span class="genre-icon">🎭</span>
+                            <span class="genre-name">Drama</span>
+                            <span class="genre-desc">Emotional, realistic, life struggles</span>
+                        </div>
+                    </label>
+                    <label class="genre-option">
+                        <input type="radio" name="genre" value="action">
+                        <div class="genre-card">
+                            <span class="genre-icon">⚔️</span>
+                            <span class="genre-name">Action</span>
+                            <span class="genre-desc">Fast-paced, fighting, danger</span>
+                        </div>
+                    </label>
+                    <label class="genre-option">
+                        <input type="radio" name="genre" value="historical">
+                        <div class="genre-card">
+                            <span class="genre-icon">📜</span>
+                            <span class="genre-name">Historical</span>
+                            <span class="genre-desc">Set in the past, based on real time periods</span>
+                        </div>
+                    </label>
+                </div>
+            </section>
+
+            <section class="form-section settings-row">
+                <div class="setting-item">
+                    <span class="setting-label">Length</span>
+                    <div class="radio-group-inline">
+                        <label class="radio-option">
+                            <input type="radio" name="length" value="short" checked>
+                            <span>Short</span>
+                        </label>
+                        <label class="radio-option">
+                            <input type="radio" name="length" value="medium">
+                            <span>Medium</span>
+                        </label>
+                        <label class="radio-option">
+                            <input type="radio" name="length" value="long">
+                            <span>Long</span>
+                        </label>
+                    </div>
+                </div>
+            </section>
+
+            <section class="form-section settings-row">
+                <div class="setting-item">
+                    <span class="setting-label">Density</span>
+                    <div class="radio-group-inline">
+                        <label class="radio-option">
+                            <input type="radio" name="density" value="short" checked>
+                            <span>Short</span>
+                        </label>
+                        <label class="radio-option">
+                            <input type="radio" name="density" value="medium">
+                            <span>Medium</span>
+                        </label>
+                        <label class="radio-option">
+                            <input type="radio" name="density" value="dense">
+                            <span>Dense</span>
+                        </label>
+                    </div>
+                </div>
+            </section>
+
+            <div class="section-divider"></div>
+
+            <section class="form-section settings-row">
+                <div class="setting-item">
+                    <span class="setting-label">Image Generation Model</span>
+                    <div class="radio-group-inline">
+                        <label class="radio-option">
+                            <input type="radio" name="imageModel" value="Nanobanana" checked>
+                            <span>Nanobanana</span>
+                        </label>
+                        <label class="radio-option">
+                            <input type="radio" name="imageModel" value="imagegen">
+                            <span>imagegen</span>
+                        </label>
+                    </div>
+                </div>
+            </section>
+
+            <section class="form-section">
+                <div class="setting-item full-width">
+                    <label class="setting-label" for="geminiApiKey">Gemini API Key</label>
+                    <input 
+                        type="password" 
+                        id="geminiApiKey" 
+                        class="api-key-input" 
+                        placeholder="Enter your Gemini API key" 
+                        value="AIzaSyCYb-Er3pXtnznMTuFC7k7E-FHi-7pU5Iw"
+                    >
+                </div>
+            </section>
+
+            <button type="button" class="create-btn" id="createStoryBtn">Create Story</button>
+        </main>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
+

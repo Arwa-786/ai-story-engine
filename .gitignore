@@ -1,7 +1,13 @@
-# Dependencies
+# Environment variables (keep secrets safe!)
+.env
+
+# Node modules
 node_modules/
 .pnp
 .pnp.js
+
+backend/node_modules/
+frontend/node_modules/
 
 # Build outputs
 dist/
@@ -35,6 +41,9 @@ coverage/
 .nyc_output/
 
 # Editor settings
+*.log
+
+# IDE files
 .vscode/
 .idea/
 *.swp
@@ -45,3 +54,7 @@ coverage/
 .cache/
 temp/
 tmp/
+
+# OS files
+.DS_Store
+Thumbs.db

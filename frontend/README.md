@@ -1,73 +1,111 @@
-# React + TypeScript + Vite
+# AI Story Engine
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Interactive AI-powered story engine built with TypeScript and Vite. Create beautiful, branching narratives with dynamic page flips, multiple page types, and AI-generated content.
 
-Currently, two official plugins are available:
+## 🚀 Quick Start
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+### Setup
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+Install dependencies:
+```bash
+npm install
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+### Development
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+Start the dev server:
+```bash
+npm run dev
 ```
+
+Opens at `http://localhost:3000`
+
+### Build
+
+Build for production:
+```bash
+npm run build
+```
+
+Output in `dist/` folder.
+
+## 📁 Project Structure
+
+```
+ai-story-engine/
+├── src/
+│   ├── types/
+│   │   └── html2pdf.d.ts    # Type definitions for html2pdf library
+│   ├── types.ts              # Core type definitions
+│   ├── main.ts               # Story creation page logic
+│   └── story.ts              # Story display & interaction logic
+├── docs/
+│   ├── FEATURES.md           # Complete feature documentation
+│   └── PAGE_TYPES.md         # Page types reference guide
+├── index.html                # Story creation page
+├── story.html                # Story reading experience
+├── test-flip.html            # Test page for all page types
+├── styles.css                # Creation page styles
+├── story-styles.css          # Story book styles
+├── tsconfig.json             # TypeScript configuration
+├── vite.config.ts            # Vite build configuration
+└── package.json              # Dependencies & scripts
+```
+
+## 📖 Features
+
+- **Beautiful Book UI** - Classic book design with page flip animations
+- **Multiple Page Types** - Cover, chapters, single/multiple options, conversations, endings
+- **Dynamic Back Cover** - Automatically generated with story summary and metadata
+- **PDF Export** - Export your story to PDF format
+- **Responsive Design** - Works on desktop, tablet, and mobile
+- **TypeScript** - Fully typed codebase for reliability
+- **AI Integration Ready** - Built to integrate with Gemini API and image generation
+
+## 🎯 Usage
+
+### Creating a Story
+
+1. Open `index.html` in your browser
+2. Choose between Custom (your own story) or Random (select a genre)
+3. Configure length, density, and image model
+4. Enter your Gemini API key
+5. Click "Create Story"
+
+### Reading a Story
+
+- Click on the cover to begin
+- Make choices as they appear
+- Experience different page types
+- Reach the ending to see the back cover with story summary
+
+### Testing
+
+Open `test-flip.html` to see all page types in action with detailed examples.
+
+## 📚 Documentation
+
+- **[FEATURES.md](docs/FEATURES.md)** - Complete feature list and capabilities
+- **[PAGE_TYPES.md](docs/PAGE_TYPES.md)** - Guide to all supported page types
+
+## 🔧 Requirements
+
+- Node.js >= 18.0.0
+- npm >= 9.0.0
+
+## 🛠️ Technical Stack
+
+- **Frontend**: TypeScript, HTML5, CSS3
+- **Build Tool**: Vite
+- **PDF Export**: html2pdf.js
+- **AI Integration**: Gemini API (planned)
+- **Image Generation**: Nanobanana/imagegen (planned)
+
+## 📝 License
+
+MIT
+
+---
+
+**Built by Team A from SharkByte**  
+*Powered by AI Story Engine*

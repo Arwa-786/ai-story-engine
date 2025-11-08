@@ -1,4 +1,5 @@
 import express, { Request, Response } from 'express';
+import cors from 'cors';
 import dotenv from 'dotenv';
 import storyRouter from './routes/storyRoutes.js';
 //import storyRouter from './routes/storyRoutes';
@@ -11,6 +12,13 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Middleware
+// 0. CORS: Allow local dev tools (Vite, Storybook, etc.) to hit this API.
+app.use(
+    cors({
+        origin: true,
+        credentials: true,
+    }),
+);
 // 1. JSON Body Parser: Allows Express to read JSON data sent in POST requests (like the genre)
 app.use(express.json());
 

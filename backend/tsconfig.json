@@ -1,0 +1,35 @@
+{
+  "compilerOptions": {
+    /* Modules & Resolution */
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "target": "esnext",
+    "esModuleInterop": true,
+    
+    /* File Layout */
+    "rootDir": "./src",
+    "outDir": "./dist",
+
+    /* Type Checking */
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+
+    /* Outputs */
+    "sourceMap": true,
+    "declaration": true,
+    "declarationMap": true,
+
+    /* Code Style */
+    "noImplicitReturns": true,
+    "noImplicitOverride": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+
+    /* Environment and Skipping */
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "skipLibCheck": true,
+  }
+}

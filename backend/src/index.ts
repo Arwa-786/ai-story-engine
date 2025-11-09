@@ -1,7 +1,9 @@
 import { loadEnv } from "./config/env.js";
 import express, { type Request, type Response } from "express";
 import cors from "cors";
+import { Readable } from "stream";
 import { generateTextFromHashes } from "./agents/textAgent.js";
+import { generateSpeech } from "./agents/speechAgents.js";
 
 loadEnv();
 
@@ -115,6 +117,81 @@ app.post(
         error instanceof Error ? error.message : "Unknown generation error.";
       console.error("Text generation failed:", message);
       return res.status(502).json({ error: message });
+    }
+  },
+);
+
+// Speech generation endpoint
+interface SpeechGenerateRequestBody {
+  text: string;
+  genre?: string;
+}
+
+app.post(
+  "/api/speech/generate",
+  async (req: Request<unknown, unknown, SpeechGenerateRequestBody>, res: Response) => {
+    const { text, genre } = req.body ?? {};
+
+    if (!text || typeof text !== "string" || text.trim().length === 0) {
+      return res
+        .status(400)
+        .json({ error: "Invalid payload. 'text' must be a non-empty string." });
+    }
+
+    // Get environment variables
+    const elevenLabsToken = process.env.ELEVENLABS_TOKEN?.trim();
+    const accountId = process.env.CLOUDFLARE_ACCOUNT_ID?.trim();
+    const gatewayId = process.env.CLOUDFLARE_AI_GATEWAY_ID?.trim();
+
+    // Check that all required environment variables are set
+    if (!elevenLabsToken || !accountId || !gatewayId) {
+      console.error("Missing ElevenLabs or Cloudflare Gateway .env variables");
+      return res.status(500).json({ 
+        error: "Server configuration error. Missing required environment variables." 
+      });
+    }
+
+    try {
+      // Create env object for the speech agent
+      const env = {
+        ELEVENLABS_TOKEN: elevenLabsToken,
+        AI_GATEWAY_ACCOUNT_ID: accountId,
+        AI_GATEWAY_ID: gatewayId,
+      };
+
+      // Call the speech generation function with genre support
+      const speechResponse = await generateSpeech(text, env, genre);
+
+      // Check if the response is an error
+      if (!speechResponse.ok) {
+        const errorText = await speechResponse.text();
+        return res.status(speechResponse.status).json({ error: errorText });
+      }
+
+      // Set the audio headers from the ElevenLabs response
+      res.setHeader('Content-Type', speechResponse.headers.get('Content-Type') || 'audio/mpeg');
+      const contentLength = speechResponse.headers.get('Content-Length');
+      if (contentLength) {
+        res.setHeader('Content-Length', contentLength);
+      }
+
+      // Stream the audio response
+      if (speechResponse.body) {
+        // Convert the Web Stream (from fetch) to a Node.js Stream (for Express)
+        const nodeStream = Readable.fromWeb(speechResponse.body as any);
+        // Pipe the audio stream directly to the client
+        nodeStream.pipe(res);
+      } else {
+        return res.status(500).json({ error: "Empty audio response from API." });
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unknown speech generation error.";
+      console.error("Speech generation failed:", message);
+      // Check if headers were already sent (which happens if streaming started)
+      if (!res.headersSent) {
+        return res.status(502).json({ error: message });
+      }
     }
   },
 );

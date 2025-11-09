@@ -14,15 +14,15 @@ export async function invokeGeminiModel(
 
   // Always use Cloudflare Gateway
   const gatewayRequest: Parameters<typeof generateGeminiContentViaGateway>[0] = {
-    modelId,
-    prompt,
+      modelId,
+      prompt,
     responseMimeType: agentConfig.responseMimeType ?? "application/json",
   };
-  
+
   if (typeof agentConfig.temperature === "number") {
     gatewayRequest.temperature = agentConfig.temperature;
   }
-  
+
   if (typeof agentConfig.maxOutputTokens === "number") {
     gatewayRequest.maxOutputTokens = agentConfig.maxOutputTokens;
   }
@@ -30,7 +30,7 @@ export async function invokeGeminiModel(
   if (agentConfig.apiVersion) {
     gatewayRequest.apiVersion = agentConfig.apiVersion;
   }
-  
+
   if (agentConfig.gatewayProviderSlug) {
     gatewayRequest.providerSlug = agentConfig.gatewayProviderSlug;
   }

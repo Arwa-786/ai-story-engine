@@ -314,12 +314,12 @@ const handleHealthCheck = async () => {
 
 const invokeAgent = async () => {
   const payload = buildAgentPayload();
-  const url = buildUrl("/api/agents/text");
+  const url = buildUrl("/api/text/generate");
 
   updateRequestPanel(panels.agent, "POST", url, payload);
   resetResponsePanel(panels.agent, "Awaiting backend response…");
 
-  const response = await executeRequest("POST", "/api/agents/text", payload);
+  const response = await executeRequest("POST", "/api/text/generate", payload);
   updateResponsePanel(panels.agent, response);
 
   if (response.ok) {
@@ -367,7 +367,7 @@ runAgentButton.addEventListener("click", async () => {
 updateRequestPanel(
   panels.agent,
   "POST",
-  buildUrl("/api/agents/text"),
+  buildUrl("/api/text/generate"),
   { inputs: samplePayload },
 );
 resetResponsePanel(panels.agent);

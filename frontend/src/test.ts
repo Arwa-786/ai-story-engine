@@ -1,5 +1,5 @@
-import { generateAudio } from '../backend/src/agents/audioAgent.js';
-import { generateImage } from '../backend/src/agents/imageAgent.js';
+import { generateAudio } from '../../backend/_BACKUP/src/agents/audioAgent.js';
+import { generateImage } from '../../backend/_BACKUP/src/agents/imageAgent.js';
 
 async function testFunctions() {
   console.log('Testing AI Story Engine Agents...\n');

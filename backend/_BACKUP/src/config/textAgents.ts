@@ -35,20 +35,12 @@ const DEFAULT_API_VERSION =
 const DEFAULT_RESPONSE_MIME = normaliseString(
   process.env.TEXT_AGENT_DEFAULT_RESPONSE_MIME,
 );
+// For compat, provider slug should match Cloudflare Gateway's compat provider namespace
+// e.g., "google-ai-studio"
 const DEFAULT_GATEWAY_PROVIDER =
-  normaliseString(process.env.CLOUDFLARE_AI_GATEWAY_PROVIDER) ?? "google";
+  normaliseString(process.env.CLOUDFLARE_AI_GATEWAY_PROVIDER) ?? "google-ai-studio";
 
-export function getDeclaredTextAgentNames(): string[] {
-  const raw = normaliseString(process.env.TEXT_AGENTS);
-  if (!raw) {
-    return [];
-  }
-
-  return raw
-    .split(",")
-    .map((part) => part.trim())
-    .filter((part) => part.length > 0);
-}
+// (removed unused getDeclaredTextAgentNames)
 
 export function getTextAgentConfig(
   name: string,
@@ -152,7 +144,7 @@ export function getTextAgentConfig(
   return config;
 }
 
-export function mergeModelPreferences(
+function mergeModelPreferences(
   ...lists: Array<readonly string[] | undefined>
 ): string[] {
   const merged: string[] = [];

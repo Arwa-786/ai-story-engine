@@ -1,67 +1,24 @@
-import dotenv from "dotenv";
+import fs from "fs";
 import path from "path";
-import { fileURLToPath } from "url";
+import dotenv from "dotenv";
 
-let loaded = false;
-
+/**
+ * Loads environment variables from:
+ * 1) project-root/.env (one level above backend/)
+ * 2) backend/.env (current working dir when running backend)
+ * Values already set in process.env are not overridden.
+ */
 export function loadEnv(): void {
-	if (loaded) return;
+  const cwd = process.cwd();
+  const rootEnv = path.resolve(cwd, "..", ".env");
+  const backendEnv = path.resolve(cwd, ".env");
 
-	// Try project-root .env using a stable, file-based path (works regardless of CWD)
-	const __filename = fileURLToPath(import.meta.url);
-	const __dirname = path.dirname(__filename);
-	const projectRoot = path.resolve(__dirname, "../../..");
-	const rootEnvPath = path.join(projectRoot, ".env");
-
-	// 1) Load from project root explicitly
-	dotenv.config({ path: rootEnvPath });
-	// 2) Also allow fallback to current working directory if a local .env exists
-	dotenv.config();
-
-	loaded = true;
+  // 1) Load project root first (does NOT override existing process.env)
+  if (fs.existsSync(rootEnv)) {
+    dotenv.config({ path: rootEnv, override: false });
+  }
+  // 2) Load backend/.env second and ALLOW override, so local backend config wins
+  if (fs.existsSync(backendEnv)) {
+    dotenv.config({ path: backendEnv, override: true });
+  }
 }
-
-export function validateRequiredEnvVars(): void {
-	const missingVars: string[] = [];
-
-	// Common required variables
-	if (!process.env.PORT) {
-		missingVars.push("PORT");
-	}
-
-	// Cloudflare Gateway requirements (always required)
-	if (!process.env.CLOUDFLARE_ACCOUNT_ID) {
-		missingVars.push("CLOUDFLARE_ACCOUNT_ID");
-	}
-	if (!process.env.CLOUDFLARE_AI_GATEWAY_ID) {
-		missingVars.push("CLOUDFLARE_AI_GATEWAY_ID");
-	}
-	// Still need Gemini API key for Cloudflare Gateway
-	if (!process.env.GEMINI_API_KEY) {
-		missingVars.push("GEMINI_API_KEY (required for Cloudflare AI Gateway)");
-	}
-
-	if (missingVars.length > 0) {
-		console.error("\n❌ CONFIGURATION ERROR: Missing required environment variables:");
-		missingVars.forEach(varName => {
-			console.error(`   - ${varName}`);
-		});
-		console.error("\n📝 Please create a .env file in the project root with the required variables.");
-		console.error("\n🤖 Using Cloudflare AI Gateway");
-		
-		console.error("\nExample .env configuration:");
-		console.error("PORT=3000");
-		console.error("CLOUDFLARE_ACCOUNT_ID=your_account_id");
-		console.error("CLOUDFLARE_AI_GATEWAY_ID=your_gateway_id");
-		console.error("GEMINI_API_KEY=your_google_ai_studio_key");
-		console.error("GEMINI_MODEL_ID=gemini-2.0-flash-exp");
-		
-		console.error("\n");
-		process.exit(1);
-	}
-
-	console.log("✅ All required environment variables are set");
-	console.log("🤖 Using Cloudflare AI Gateway for text generation");
-}
-
-

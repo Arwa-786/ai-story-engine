@@ -20,9 +20,15 @@ interface AudioAgentRequestBody {
 const agentRouter: Router = express.Router();
 
 agentRouter.post("/text", async (req: Request, res: Response) => {
+  console.log(`\n📥 POST /api/agents/text - Request received`);
+  console.log(`   Client IP: ${req.ip}`);
+  console.log(`   Request Headers:`, req.headers);
+  
   const { inputs, instructions, jobId } = req.body as TextAgentRequestBody;
+  console.log(`   Request Body:`, JSON.stringify(req.body, null, 2));
 
   if (!inputs || typeof inputs !== "object" || Array.isArray(inputs)) {
+    console.error(`   ❌ Invalid inputs provided`);
     return res.status(400).json({ error: "Request body must include an 'inputs' object." });
   }
 

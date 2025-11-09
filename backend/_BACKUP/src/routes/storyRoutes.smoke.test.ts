@@ -25,7 +25,7 @@ before(() => {
     return {
       text: `Echo ${Object.keys(inputs).join(", ")}`,
       prompt: "Test prompt",
-      provider: "gemini-direct",
+      provider: "cloudflare-gateway",
       modelId: "test-model",
       inputs,
       jobId: payload.jobId ?? "hash-job-test",
@@ -64,7 +64,7 @@ test("POST /api/text/generate with inputs returns 200 and text response", async 
   assert.equal(res.status, 200);
   assert.equal(res.body.text, "Echo topic, tone");
   assert.equal(res.body.modelId, "test-model");
-  assert.equal(res.body.provider, "gemini-direct");
+  assert.equal(res.body.provider, "cloudflare-gateway");
   assert.equal(res.body.jobId, "hash-job-test");
   assert.equal(res.body.createdAt, "2025-01-01T00:00:00.000Z");
 });

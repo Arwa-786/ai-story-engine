@@ -1,47 +1,150 @@
-import express, { Request, Response } from 'express';
-import cors from 'cors';
-import { loadEnv, validateRequiredEnvVars } from './config/env.js';
-import textRouter from './routes/storyRoutes.js';
-import agentRouter from './routes/agentRoutes.js';
-//import storyRouter from './routes/storyRoutes';
+import { loadEnv } from "./config/env.js";
+import express, { type Request, type Response } from "express";
+import cors from "cors";
+import { generateTextFromHashes } from "./agents/textAgent.js";
 
-// Load environment variables robustly (project root or CWD)
 loadEnv();
 
-// Validate all required environment variables are present
-validateRequiredEnvVars();
-
 const app = express();
-const PORT = process.env.PORT || 3000;
+const port = normalizePort(process.env.PORT) ?? 3000;
 
-// Middleware
-// 0. CORS: Allow local dev tools (Vite, Storybook, etc.) to hit this API.
 app.use(
-    cors({
-        origin: true,
-        credentials: true,
-    }),
+  cors({
+    origin: true,
+    credentials: false,
+  }),
 );
-// 1. JSON Body Parser: Allows Express to read JSON data sent in POST requests (like the genre)
-app.use(express.json());
+app.use(express.json({ limit: "2mb" }));
 
-// 2. Set API Routes
-// Hash-based text orchestration
-app.use('/api/text', textRouter);
-// Agent-specific endpoints for text, image, and audio generation
-app.use('/api/agents', agentRouter);
-
-// Basic health check route
-app.get('/', (_req: Request, res: Response) => {
-    res.send('AI Story Engine Backend Running');
+app.get("/", (_req: Request, res: Response) => {
+  res.status(200).json({ status: "ok" });
 });
 
-// Start the server
-app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-    console.log('Text Endpoint: http://localhost:3000/api/text/generate');
-    console.log('Agent Endpoints:');
-    console.log('  POST http://localhost:3000/api/agents/text');
-    console.log('  POST http://localhost:3000/api/agents/image');
-    console.log('  POST http://localhost:3000/api/agents/audio');
+// Readiness probe for the text generation endpoint
+app.get("/api/text/generate", (_req: Request, res: Response) => {
+  const modelId =
+    process.env.GEMINI_MODEL_ID?.trim() || "gemini-2.5-flash";
+  const provider =
+    process.env.CLOUDFLARE_AI_GATEWAY_PROVIDER?.trim() || "google";
+  const hasAccount = Boolean(process.env.CLOUDFLARE_ACCOUNT_ID?.trim());
+  const hasGateway = Boolean(process.env.CLOUDFLARE_AI_GATEWAY_ID?.trim());
+  const hasApiKey = Boolean(process.env.CLOUDFLARE_API_KEY?.trim());
+  const hasBaseUrl = Boolean(process.env.CLOUDFLARE_AI_GATEWAY_BASE_URL?.trim());
+  res.json({
+    route: { method: "POST", path: "/api/text/generate" },
+    health: "ok",
+    env: {
+      modelId,
+      provider,
+      accountIdSet: hasAccount,
+      gatewayIdSet: hasGateway,
+      apiKeySet: hasApiKey,
+      baseUrlSet: hasBaseUrl,
+    },
+  });
 });
+
+interface TextGenerateRequestBody {
+  inputs: Record<string, unknown>;
+  instructions?: string;
+  modelId?: string;
+  temperature?: number;
+  maxOutputTokens?: number;
+}
+
+app.post(
+  "/api/text/generate",
+  async (req: Request<unknown, unknown, TextGenerateRequestBody>, res: Response) => {
+    const { inputs, instructions, modelId, temperature, maxOutputTokens } = req.body ?? {};
+
+    if (!inputs || typeof inputs !== "object" || Array.isArray(inputs)) {
+      return res
+        .status(400)
+        .json({ error: "Invalid payload. 'inputs' must be a JSON object." });
+    }
+
+    const finalModelId =
+      typeof modelId === "string" && modelId.trim().length > 0
+        ? modelId.trim()
+        : process.env.GEMINI_MODEL_ID?.trim() || "gemini-2.0-flash-exp";
+
+    const finalTemperature =
+      coerceNumber(temperature) ??
+      coerceNumber(process.env.TEXT_AGENT_HASH_TEMPERATURE) ??
+      undefined;
+
+    const finalMaxOutputTokens =
+      coerceInt(maxOutputTokens) ??
+      coerceInt(process.env.TEXT_AGENT_HASH_MAX_OUTPUT_TOKENS) ??
+      undefined;
+
+    const started = performance.now();
+    try {
+      const agentOptions: Record<string, unknown> = { modelId: finalModelId };
+      if (finalTemperature !== undefined) {
+        agentOptions.temperature = finalTemperature;
+      }
+      if (finalMaxOutputTokens !== undefined) {
+        agentOptions.maxOutputTokens = finalMaxOutputTokens;
+      }
+      const envProvider = process.env.CLOUDFLARE_AI_GATEWAY_PROVIDER?.trim();
+      if (envProvider) {
+        agentOptions.providerSlug = envProvider;
+      }
+      const envBaseUrl = process.env.CLOUDFLARE_AI_GATEWAY_BASE_URL?.trim();
+      if (envBaseUrl) {
+        agentOptions.baseUrlOverride = envBaseUrl;
+      }
+      const { text } = await generateTextFromHashes(
+        inputs,
+        instructions,
+        agentOptions as {
+          modelId: string;
+          temperature?: number;
+          maxOutputTokens?: number;
+          providerSlug?: string;
+          baseUrlOverride?: string;
+        },
+      );
+      const elapsedMs = performance.now() - started;
+      return res.status(200).json({
+        modelId: finalModelId,
+        elapsedMs: Math.round(elapsedMs),
+        text,
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unknown generation error.";
+      console.error("Text generation failed:", message);
+      return res.status(502).json({ error: message });
+    }
+  },
+);
+
+app.listen(port, () => {
+  console.log(`Backend listening on http://localhost:${port}`);
+});
+
+function normalizePort(raw?: string): number | undefined {
+  if (!raw) return undefined;
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+}
+
+function coerceNumber(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim().length > 0) {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : undefined;
+  }
+  return undefined;
+}
+
+function coerceInt(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isInteger(value)) return value;
+  if (typeof value === "string" && value.trim().length > 0) {
+    const n = Number.parseInt(value, 10);
+    return Number.isInteger(n) ? n : undefined;
+  }
+  return undefined;
+}

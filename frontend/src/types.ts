@@ -34,12 +34,6 @@ export interface Character {
   backstory?: string;
 }
 
-export interface Choice {
-  id: string;
-  label: string;
-  narration: string;
-}
-
 export interface Outcome {
   id: string;
   title: string;
@@ -51,6 +45,8 @@ export interface StoryDefinition {
   title: string;
   genre: string;
   theme: string;
+  tagline: string;
+  image?: ImageObject;
 
   // Story Structure
   overview: string;
@@ -75,15 +71,8 @@ export interface StoryDefinition {
  * Structured, render-ready story model ("Story Step (index)")
  */
 export interface ImageObject {
-  url: string;
   alt?: string;
   prompt?: string;
-}
-
-export interface FrontCover {
-  title: string;
-  tagline: string;
-  image?: ImageObject;
 }
 
 export interface OptionActionGoToNextPage {
@@ -118,7 +107,6 @@ export interface BackCover {
 }
 
 export interface StoryStructure {
-  frontCover: FrontCover;
   pages: StoryPage[];
   backCover: BackCover;
 }

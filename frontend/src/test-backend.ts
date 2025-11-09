@@ -27,10 +27,19 @@ const selectors = {
   instructions: "instructionsTextarea",
   loadSampleButton: "loadSampleButton",
   runAgentButton: "runTextAgentButton",
+  // StoryDefinition generator controls
+  storyLength: "storyLength",
+  storyDensity: "storyDensity",
+  storyDescription: "storyDescription",
+  runDefineButton: "runDefineButton",
   agentRequestMeta: "agentRequestMeta",
   agentRequestBody: "agentRequestBody",
   agentResponseMeta: "agentResponseMeta",
   agentResponseBody: "agentResponseBody",
+  defineRequestMeta: "defineRequestMeta",
+  defineRequestBody: "defineRequestBody",
+  defineResponseMeta: "defineResponseMeta",
+  defineResponseBody: "defineResponseBody",
   logArea: "logArea",
 } as const;
 
@@ -55,8 +64,12 @@ class BackendAgentTester {
   private instructionsTextarea: HTMLTextAreaElement;
   private loadSampleButton: HTMLButtonElement;
   private runAgentButton: HTMLButtonElement;
+  private storyLengthSelect: HTMLSelectElement;
+  private storyDensitySelect: HTMLSelectElement;
+  private storyDescriptionTextarea: HTMLTextAreaElement;
+  private runDefineButton: HTMLButtonElement;
   private logArea: HTMLDivElement;
-  private panels: { agent: PanelBinding };
+  private panels: { agent: PanelBinding; define: PanelBinding };
 
   static maybeInit(): void {
     const requiredIds = [
@@ -67,10 +80,18 @@ class BackendAgentTester {
       selectors.instructions,
       selectors.loadSampleButton,
       selectors.runAgentButton,
+      selectors.storyLength,
+      selectors.storyDensity,
+      selectors.storyDescription,
+      selectors.runDefineButton,
       selectors.agentRequestMeta,
       selectors.agentRequestBody,
       selectors.agentResponseMeta,
       selectors.agentResponseBody,
+      selectors.defineRequestMeta,
+      selectors.defineRequestBody,
+      selectors.defineResponseMeta,
+      selectors.defineResponseBody,
       selectors.logArea,
     ];
     const missing = requiredIds.filter((id) => !document.getElementById(id));
@@ -89,6 +110,10 @@ class BackendAgentTester {
     this.instructionsTextarea = this.getElement<HTMLTextAreaElement>(selectors.instructions);
     this.loadSampleButton = this.getElement<HTMLButtonElement>(selectors.loadSampleButton);
     this.runAgentButton = this.getElement<HTMLButtonElement>(selectors.runAgentButton);
+    this.storyLengthSelect = this.getElement<HTMLSelectElement>(selectors.storyLength);
+    this.storyDensitySelect = this.getElement<HTMLSelectElement>(selectors.storyDensity);
+    this.storyDescriptionTextarea = this.getElement<HTMLTextAreaElement>(selectors.storyDescription);
+    this.runDefineButton = this.getElement<HTMLButtonElement>(selectors.runDefineButton);
     this.logArea = this.getElement<HTMLDivElement>(selectors.logArea);
     this.panels = {
       agent: {
@@ -96,6 +121,12 @@ class BackendAgentTester {
         requestBody: this.getElement<HTMLPreElement>(selectors.agentRequestBody),
         responseMeta: this.getElement<HTMLDivElement>(selectors.agentResponseMeta),
         responseBody: this.getElement<HTMLPreElement>(selectors.agentResponseBody),
+      },
+      define: {
+        requestMeta: this.getElement<HTMLDivElement>(selectors.defineRequestMeta),
+        requestBody: this.getElement<HTMLPreElement>(selectors.defineRequestBody),
+        responseMeta: this.getElement<HTMLDivElement>(selectors.defineResponseMeta),
+        responseBody: this.getElement<HTMLPreElement>(selectors.defineResponseBody),
       },
     };
   }
@@ -123,6 +154,19 @@ class BackendAgentTester {
         }
       });
     });
+    this.runDefineButton.addEventListener("click", async () => {
+      await this.withLoading(this.runDefineButton, "Generating…", async () => {
+        try {
+          await this.invokeDefine();
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : "Unknown error.";
+          this.log("error", message);
+          this.panels.define.responseMeta.textContent = message;
+          this.panels.define.responseBody.textContent = "";
+        }
+      });
+    });
 
     this.updateRequestPanel(
       this.panels.agent,
@@ -131,6 +175,13 @@ class BackendAgentTester {
       { inputs: samplePayload },
     );
     this.resetResponsePanel(this.panels.agent);
+    this.updateRequestPanel(
+      this.panels.define,
+      "POST",
+      this.buildUrl("/api/story/define"),
+      this.buildDefinePayload(),
+    );
+    this.resetResponsePanel(this.panels.define);
     this.updateHealthStatus("Awaiting health check…", "info");
     this.handleSampleLoad();
   }
@@ -304,7 +355,33 @@ class BackendAgentTester {
   private handleSampleLoad(): void {
     this.hashInputsTextarea.value = JSON.stringify(samplePayload, null, 2);
     this.instructionsTextarea.value = "Compose an executive-ready summary that blends the provided hashes.";
+    // Prefill a StoryConfiguration example
+    this.storyLengthSelect.value = "medium";
+    this.storyDensitySelect.value = "medium";
+    this.storyDescriptionTextarea.value = "A cozy mystery about a librarian in a seaside town.";
     this.log("info", "Loaded sample hash input.");
+  }
+
+  private buildDefinePayload(): { length: string; density: string; description: string } {
+    const length = (this.storyLengthSelect.value || "medium").trim();
+    const density = (this.storyDensitySelect.value || "medium").trim();
+    const description = (this.storyDescriptionTextarea.value || "").trim();
+    return { length, density, description };
+  }
+
+  private async invokeDefine(): Promise<void> {
+    const payload = this.buildDefinePayload();
+    const url = this.buildUrl("/api/story/define");
+    this.updateRequestPanel(this.panels.define, "POST", url, payload);
+    this.resetResponsePanel(this.panels.define, "Awaiting backend response…");
+    const response = await this.executeRequest("POST", "/api/story/define", payload);
+    this.updateResponsePanel(this.panels.define, response);
+    if (response.ok) {
+      this.log("success", `StoryDefinition generated in ${BackendAgentTester.formatDuration(response.elapsedMs)}.`);
+    } else {
+      const detail = BackendAgentTester.resolveDetail(response.error ?? response.raw);
+      this.log("error", `StoryDefinition generation failed → ${response.status} ${response.statusText}: ${BackendAgentTester.truncate(detail)}`);
+    }
   }
 
   private log(level: LogLevel, message: string): void {

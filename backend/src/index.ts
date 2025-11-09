@@ -4,8 +4,8 @@ import cors from "cors";
 import { Readable } from "stream";
 import { generateTextFromHashes } from "./agents/textAgent.js";
 import { generateSpeech } from "./agents/speechAgents.js";
-import { createAudioRouter } from "./routes/agentRoutes.js";
 import storyRouter from "./routes/storyRoutes.js";
+import { createAudioRouter, createImageRouter } from "./routes/agentRoutes.js";
 
 loadEnv();
 
@@ -19,6 +19,13 @@ app.use(
   }),
 );
 app.use(express.json({ limit: "2mb" }));
+
+// Image agent route (Gemini direct)
+const geminiKey = process.env.GEMINI_API_KEY?.trim();
+if (geminiKey) {
+  const imageRouter = createImageRouter();
+  app.use("/api/agents/image", imageRouter);
+}
 
 // Audio agent route
 const elevenLabsToken = process.env.ELEVENLABS_TOKEN?.trim();

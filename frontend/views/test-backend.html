@@ -448,6 +448,34 @@
       </section>
 
       <section class="card">
+        <h2>Gemini Images (Direct) Playground</h2>
+        <div class="field-group">
+          <label for="imagePromptInput">Image Prompt</label>
+          <input id="imagePromptInput" type="text" placeholder="A cozy watercolor cottage in a misty forest at sunrise" spellcheck="false" />
+          <p class="helper-text">
+            This calls the backend route that uses the Gemini Images API directly (no Cloudflare). Default model: gemini-2.5-flash-image (Nano Banana).
+          </p>
+        </div>
+        <div class="button-row">
+          <button id="runImageAgentButton" class="primary" type="button">Generate Image (/api/agents/image/generate)</button>
+        </div>
+        <div class="grid">
+          <div class="panel">
+            <h3>Image Agent</h3>
+            <div id="imageAgentRequestMeta" class="helper-text">POST —</div>
+            <pre id="imageAgentRequestBody">—</pre>
+            <div id="imageAgentResponseMeta" class="helper-text">Awaiting request…</div>
+            <pre id="imageAgentResponseBody"></pre>
+          </div>
+          <div class="panel">
+            <h3>Preview</h3>
+            <img id="imagePreview" alt="Generated preview" style="max-width: 100%; border-radius: 12px; border: 1px solid rgba(148,163,184,0.18);" />
+            <div class="helper-text">The generated image will appear here.</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
         <h2>Execution Log</h2>
         <div id="logArea" class="log-area"></div>
       </section>

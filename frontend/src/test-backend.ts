@@ -41,6 +41,13 @@ const selectors = {
   defineResponseMeta: "defineResponseMeta",
   defineResponseBody: "defineResponseBody",
   logArea: "logArea",
+  imagePromptInput: "imagePromptInput",
+  runImageAgentButton: "runImageAgentButton",
+  imageAgentRequestMeta: "imageAgentRequestMeta",
+  imageAgentRequestBody: "imageAgentRequestBody",
+  imageAgentResponseMeta: "imageAgentResponseMeta",
+  imageAgentResponseBody: "imageAgentResponseBody",
+  imagePreview: "imagePreview",
 } as const;
 
 const storageKeys = {
@@ -68,8 +75,11 @@ class BackendAgentTester {
   private storyDensitySelect: HTMLSelectElement;
   private storyDescriptionTextarea: HTMLTextAreaElement;
   private runDefineButton: HTMLButtonElement;
+  private imagePromptInput: HTMLInputElement;
+  private runImageAgentButton: HTMLButtonElement;
+  private imagePreview: HTMLImageElement;
   private logArea: HTMLDivElement;
-  private panels: { agent: PanelBinding; define: PanelBinding };
+  private panels: { agent: PanelBinding; define: PanelBinding; image: PanelBinding };
 
   static maybeInit(): void {
     const requiredIds = [
@@ -92,6 +102,13 @@ class BackendAgentTester {
       selectors.defineRequestBody,
       selectors.defineResponseMeta,
       selectors.defineResponseBody,
+      selectors.imagePromptInput,
+      selectors.runImageAgentButton,
+      selectors.imageAgentRequestMeta,
+      selectors.imageAgentRequestBody,
+      selectors.imageAgentResponseMeta,
+      selectors.imageAgentResponseBody,
+      selectors.imagePreview,
       selectors.logArea,
     ];
     const missing = requiredIds.filter((id) => !document.getElementById(id));
@@ -114,6 +131,9 @@ class BackendAgentTester {
     this.storyDensitySelect = this.getElement<HTMLSelectElement>(selectors.storyDensity);
     this.storyDescriptionTextarea = this.getElement<HTMLTextAreaElement>(selectors.storyDescription);
     this.runDefineButton = this.getElement<HTMLButtonElement>(selectors.runDefineButton);
+    this.imagePromptInput = this.getElement<HTMLInputElement>(selectors.imagePromptInput);
+    this.runImageAgentButton = this.getElement<HTMLButtonElement>(selectors.runImageAgentButton);
+    this.imagePreview = this.getElement<HTMLImageElement>(selectors.imagePreview);
     this.logArea = this.getElement<HTMLDivElement>(selectors.logArea);
     this.panels = {
       agent: {
@@ -127,6 +147,12 @@ class BackendAgentTester {
         requestBody: this.getElement<HTMLPreElement>(selectors.defineRequestBody),
         responseMeta: this.getElement<HTMLDivElement>(selectors.defineResponseMeta),
         responseBody: this.getElement<HTMLPreElement>(selectors.defineResponseBody),
+      },
+      image: {
+        requestMeta: this.getElement<HTMLDivElement>(selectors.imageAgentRequestMeta),
+        requestBody: this.getElement<HTMLPreElement>(selectors.imageAgentRequestBody),
+        responseMeta: this.getElement<HTMLDivElement>(selectors.imageAgentResponseMeta),
+        responseBody: this.getElement<HTMLPreElement>(selectors.imageAgentResponseBody),
       },
     };
   }
@@ -167,6 +193,19 @@ class BackendAgentTester {
         }
       });
     });
+    this.runImageAgentButton.addEventListener("click", async () => {
+      await this.withLoading(this.runImageAgentButton, "Generating…", async () => {
+        try {
+          await this.invokeImageAgent();
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Unknown image error.";
+          this.log("error", message);
+          this.panels.image.responseMeta.textContent = message;
+          this.panels.image.responseBody.textContent = "";
+          this.imagePreview.removeAttribute("src");
+        }
+      });
+    });
 
     this.updateRequestPanel(
       this.panels.agent,
@@ -184,6 +223,11 @@ class BackendAgentTester {
     this.resetResponsePanel(this.panels.define);
     this.updateHealthStatus("Awaiting health check…", "info");
     this.handleSampleLoad();
+
+    // Seed image panel
+    const imageUrl = this.buildUrl("/api/agents/image/generate");
+    this.updateRequestPanel(this.panels.image, "POST", imageUrl, { prompt: "(enter prompt and click generate)" });
+    this.resetResponsePanel(this.panels.image);
   }
 
   private getElement<T extends HTMLElement>(id: string): T {
@@ -349,6 +393,37 @@ class BackendAgentTester {
     } else {
       const detail = BackendAgentTester.resolveDetail(response.error ?? response.raw);
       this.log("error", `Text agent failed → ${response.status} ${response.statusText}: ${BackendAgentTester.truncate(detail)}`);
+    }
+  }
+
+  private async invokeImageAgent(): Promise<void> {
+    const prompt = this.imagePromptInput.value.trim();
+    if (!prompt) {
+      throw new Error("Please enter an image prompt.");
+    }
+    const payload = { prompt };
+    const url = this.buildUrl("/api/agents/image/generate");
+    this.updateRequestPanel(this.panels.image, "POST", url, payload);
+    this.resetResponsePanel(this.panels.image, "Awaiting backend response…");
+    const response = await this.executeRequest<{ imageBase64: string; mimeType: string; modelId: string; elapsedMs: number }>(
+      "POST",
+      "/api/agents/image/generate",
+      payload,
+    );
+    this.updateResponsePanel(this.panels.image, response);
+    if (response.ok && response.data) {
+      const { imageBase64, mimeType } = response.data;
+      if (imageBase64) {
+        this.imagePreview.src = `data:${mimeType || "image/png"};base64,${imageBase64}`;
+        this.log("success", `Image generated in ${BackendAgentTester.formatDuration(response.elapsedMs)}.`);
+      } else {
+        this.imagePreview.removeAttribute("src");
+        this.log("error", "No image data returned.");
+      }
+    } else {
+      this.imagePreview.removeAttribute("src");
+      const detail = BackendAgentTester.resolveDetail(response.error ?? response.raw);
+      this.log("error", `Image agent failed → ${response.status} ${response.statusText}: ${BackendAgentTester.truncate(detail)}`);
     }
   }
 

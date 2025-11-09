@@ -1,6 +1,7 @@
 import express, { Request, Response, Router } from "express";
 import { Readable } from "stream";
 import { generateSpeech, type Env } from "../agents/speechAgents.js";
+import { generateImageFromPrompt } from "../agents/imageAgent.js";
 
 export interface HashGenerationRequest {
   inputs: Record<string, unknown>;
@@ -125,4 +126,44 @@ export function createAudioRouter(deps: AudioRouterDeps): Router {
   return router;
 }
 
+
+// Image generation
+export interface ImageGenerationRequest {
+  prompt: string;
+  modelId?: string;
+}
+
+export function createImageRouter(): Router {
+  const router: Router = express.Router();
+
+  router.post("/generate", async (req: Request, res: Response) => {
+    const { prompt, modelId } = req.body as Partial<ImageGenerationRequest>;
+
+    if (!prompt || typeof prompt !== "string" || prompt.trim().length === 0) {
+      return res
+        .status(400)
+        .json({ error: "Invalid payload. 'prompt' must be a non-empty string." });
+    }
+
+    try {
+      const started = performance.now();
+      const result = await generateImageFromPrompt(prompt, {
+        modelId: modelId,
+      });
+      const elapsedMs = Math.round(performance.now() - started);
+      return res.status(200).json({
+        modelId: result.modelId,
+        elapsedMs,
+        mimeType: result.mimeType,
+        imageBase64: result.imageBase64,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown image generation error.";
+      console.error("Image generation failed:", message);
+      return res.status(502).json({ error: message });
+    }
+  });
+
+  return router;
+}
 

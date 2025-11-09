@@ -25,15 +25,3 @@ export interface StoryMetadata {
   summary?: string;
 }
 
-export interface StoryChapter {
-  chapterNumber: number;
-  chapterTitle: string;
-  tagline?: string;
-  content: string;
-}
-
-export interface Story {
-  metadata: StoryMetadata;
-  chapters: StoryChapter[];
-}
-

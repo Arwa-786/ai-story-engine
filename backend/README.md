@@ -1,6 +1,6 @@
 # Backend Service
 
-This service orchestrates AI-powered branching story generation and exposes the `/api/story` HTTP endpoints. It can run against multiple model providers, currently Google Gemini and Cloudflare Workers AI.
+This service orchestrates AI-powered text generation using Cloudflare AI Gateway with Google Gemini models.
 
 ## Prerequisites
 
@@ -16,36 +16,28 @@ npm install
 
 ## Environment Configuration
 
-Create `/Users/samarminana/Documents/GitHub/Untitled/ai-story-engine/.env` with the appropriate secrets for the provider you plan to use.
-
-### Shared
+Create `/Users/samarminana/Documents/GitHub/Untitled/ai-story-engine/.env` with the required configuration:
 
 ```
+# Server Configuration
 PORT=3000
-AI_PROVIDER=cloudflare      # Options: cloudflare, gemini (defaults to gemini)
-ENABLE_HYBRID_ENRICH=false  # When true and GEMINI_API_KEY is set, enriches Cloudflare output with Gemini
-```
 
-### Google Gemini
-
-```
-GEMINI_API_KEY=your_api_key
-GEMINI_MODEL_ID=gemini-1.5-pro-latest
-# Optional overrides for enrichment agents
-# GEMINI_TEXT_MODEL_ID=gemini-1.5-pro-latest
-# GEMINI_TEXT_MAX_OUTPUT_TOKENS=1024
-# GEMINI_TEXT_TEMPERATURE=0.7
-```
-
-### Cloudflare Workers AI
-
-```
+# Cloudflare AI Gateway Configuration (Required)
 CLOUDFLARE_ACCOUNT_ID=your_account_id
-CLOUDFLARE_API_TOKEN=token_with_ai_gateway_scope
-CLOUDFLARE_MODEL=@cf/meta/llama-3.1-70b-instruct
+CLOUDFLARE_AI_GATEWAY_ID=your_gateway_id
+
+# Google AI Studio Configuration (Required for Cloudflare Gateway)
+GEMINI_API_KEY=your_google_ai_studio_key
+GEMINI_MODEL_ID=gemini-2.0-flash-exp
+
+# Optional: Additional Configuration
+# CLOUDFLARE_AI_GATEWAY_KEY=your_cf_token_here  # If your gateway requires authentication
+# TEXT_AGENT_HASH_MODELS_DEFAULT=gemini-2.0-flash-exp,gemini-1.5-flash-latest
+# TEXT_AGENT_HASH_TEMPERATURE=0.7
+# TEXT_AGENT_HASH_MAX_OUTPUT_TOKENS=1024
 ```
 
-> The Workers AI token needs access to the AI Gateway for the specified account. Adjust the `CLOUDFLARE_MODEL` slug to target a different deployed model if required.
+> The system uses Cloudflare AI Gateway to access Google's Gemini models. You need both Cloudflare Gateway credentials and a Google AI Studio API key.
 
 ## Development
 
@@ -53,7 +45,11 @@ CLOUDFLARE_MODEL=@cf/meta/llama-3.1-70b-instruct
 npm run dev
 ```
 
-The server listens on `http://localhost:3000` and exposes the story orchestration endpoint at `http://localhost:3000/api/story/start`.
+The server listens on `http://localhost:3000` and exposes the text generation endpoints:
+- `POST http://localhost:3000/api/text/generate` - Hash-based text generation
+- `POST http://localhost:3000/api/agents/text` - Text agent endpoint
+- `POST http://localhost:3000/api/agents/image` - Image generation endpoint
+- `POST http://localhost:3000/api/agents/audio` - Audio generation endpoint
 
 ## Type Checking
 
@@ -61,10 +57,17 @@ The server listens on `http://localhost:3000` and exposes the story orchestratio
 npx tsc --noEmit
 ```
 
-## Switching Providers
+## API Usage
 
-Set `AI_PROVIDER` in `.env` and restart the server.
+The text generation endpoints expect a POST request with hash-based inputs:
 
-- `gemini` (default): Gemini orchestrates and enriches the entire story tree.
-- `cloudflare`: Workers AI produces the branching structure, then the backend automatically uses Gemini agents (if `GEMINI_API_KEY` is present) to enrich node prose. Keep both the Cloudflare and Gemini secrets populated to run in hybrid mode.
+```json
+{
+  "inputs": {
+    "topic": "example topic",
+    "style": "formal"
+  },
+  "instructions": "Generate content based on the inputs"
+}
+```
 

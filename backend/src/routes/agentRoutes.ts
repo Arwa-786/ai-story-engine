@@ -1,14 +1,12 @@
 import express, { Request, Response, Router } from "express";
-import { StoryNode } from "../types/story.js";
-import { generateStoryText } from "../agents/textAgent.js";
+import { generateHashText, type HashTextRequest } from "../agents/textAgent.js";
 import { generateImage } from "../agents/imageAgent.js";
 import { generateAudio } from "../agents/audioAgent.js";
 
 interface TextAgentRequestBody {
-  node?: Partial<StoryNode> & Record<string, unknown>;
-  genre?: string;
-  depth?: number;
-  parentPath?: string[];
+  inputs?: Record<string, unknown>;
+  instructions?: string;
+  jobId?: string;
 }
 
 interface ImageAgentRequestBody {
@@ -22,63 +20,63 @@ interface AudioAgentRequestBody {
 const agentRouter: Router = express.Router();
 
 agentRouter.post("/text", async (req: Request, res: Response) => {
-  const { node: rawNode, genre, depth, parentPath } = req.body as TextAgentRequestBody;
+  const { inputs, instructions, jobId } = req.body as TextAgentRequestBody;
 
-  if (!rawNode || typeof rawNode !== "object") {
-    return res.status(400).json({ error: "Story node payload is required." });
+  if (!inputs || typeof inputs !== "object" || Array.isArray(inputs)) {
+    return res.status(400).json({ error: "Request body must include an 'inputs' object." });
   }
 
-  const storyNode: StoryNode = {
-    id: typeof rawNode.id === "string" && rawNode.id.trim().length > 0 ? rawNode.id : "node",
-    text: typeof rawNode.text === "string" ? rawNode.text : "",
-    is_ending: typeof rawNode.is_ending === "boolean" ? rawNode.is_ending : false,
-    choices: Array.isArray(rawNode.choices) ? (rawNode.choices as StoryNode["choices"]) : [],
+  const requestPayload: HashTextRequest = {
+    inputs,
   };
-
-  if (Array.isArray(rawNode.children)) {
-    storyNode.children = rawNode.children as StoryNode[];
+  
+  if (instructions !== undefined) {
+    requestPayload.instructions = instructions;
   }
-
-  if (typeof rawNode.imageUrl === "string") {
-    storyNode.imageUrl = rawNode.imageUrl as string;
-  }
-
-  if (typeof rawNode.audioUrl === "string") {
-    storyNode.audioUrl = rawNode.audioUrl as string;
-  }
-
-  const resolvedGenre = typeof genre === "string" && genre.trim().length > 0 ? genre.trim() : "unspecified";
-  const resolvedDepth = typeof depth === "number" && Number.isFinite(depth) ? depth : 0;
-  const resolvedParentPath =
-    Array.isArray(parentPath) && parentPath.every((item) => typeof item === "string") ? parentPath : [];
 
   try {
-    const enrichedText = await generateStoryText(storyNode, {
-      genre: resolvedGenre,
-      depth: resolvedDepth,
-      parentPath: resolvedParentPath,
-    });
-
-    const updatedNode = {
-      ...rawNode,
-      text: enrichedText,
-    };
-
+    const result = await generateHashText(requestPayload);
     return res.json({
-      text: enrichedText,
-      node: updatedNode,
-      metadata: {
-        genre: resolvedGenre,
-        depth: resolvedDepth,
-        parentPath: resolvedParentPath,
-      },
+      text: result.text,
+      prompt: result.prompt,
+      provider: result.provider,
+      modelId: result.modelId,
+      inputs: result.inputs,
+      jobId: jobId ?? null,
     });
   } catch (error) {
-    console.error("❌ Text agent route failed", error);
+    console.error("❌ Text agent route failed:", error);
     const detail = error instanceof Error ? error.message : "Unknown error";
+    
+    // Check for specific error types
+    if (detail.includes("GEMINI_API_KEY")) {
+      return res.status(503).json({
+        error: "Text generation service not configured",
+        detail: "Gemini API key is missing. Please configure GEMINI_API_KEY in your .env file.",
+        provider: "cloudflare-gateway"
+      });
+    }
+    
+    if (detail.includes("CLOUDFLARE_ACCOUNT_ID") || detail.includes("CLOUDFLARE_AI_GATEWAY_ID")) {
+      return res.status(503).json({
+        error: "Cloudflare AI Gateway not configured",
+        detail: "Cloudflare Gateway credentials are missing. Please configure CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_AI_GATEWAY_ID in your .env file.",
+        provider: "cloudflare-gateway"
+      });
+    }
+    
+    if (detail.includes("404") || detail.includes("not found")) {
+      return res.status(503).json({
+        error: "AI model not available",
+        detail: "The requested AI model is not available. Please check your model configuration.",
+        provider: "cloudflare-gateway"
+      });
+    }
+    
     return res.status(500).json({
-      error: "Failed to enrich story node text.",
+      error: "Failed to generate text from hash inputs.",
       detail,
+      provider: "cloudflare-gateway"
     });
   }
 });

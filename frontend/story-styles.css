@@ -517,86 +517,6 @@ body {
     background: rgba(139, 69, 19, 0.3);
 }
 
-/* Book Header (for chapter pages) */
-.book-header {
-    text-align: center;
-    margin-bottom: 60px;
-}
-
-.book-title-small {
-    font-size: 1.2rem;
-    color: #8b4513;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 2px;
-}
-
-/* Chapter Title Page */
-.chapter-title-page {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    text-align: center;
-    cursor: pointer;
-}
-
-.chapter-number {
-    font-size: 1.5rem;
-    color: #8b4513;
-    margin-bottom: 20px;
-    text-transform: uppercase;
-    letter-spacing: 3px;
-    font-weight: 400;
-}
-
-.chapter-title {
-    font-size: 3rem;
-    color: #2c3e50;
-    margin-bottom: 30px;
-    font-weight: 700;
-}
-
-.chapter-image {
-    width: 100%;
-    max-width: 500px;
-    margin: 0 auto 30px;
-    border-radius: 8px;
-    overflow: hidden;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-}
-
-.chapter-image img {
-    width: 100%;
-    height: auto;
-    display: block;
-}
-
-.chapter-tagline {
-    font-size: 1.2rem;
-    color: #555;
-    font-style: italic;
-    max-width: 500px;
-    line-height: 1.6;
-}
-
-/* Page Header (for story pages) */
-.page-header {
-    text-align: center;
-    padding-bottom: 20px;
-    border-bottom: 1px solid rgba(139, 69, 19, 0.2);
-    margin-bottom: 30px;
-}
-
-.chapter-name {
-    font-size: 0.9rem;
-    color: #8b4513;
-    text-transform: uppercase;
-    letter-spacing: 1.5px;
-    font-weight: 600;
-}
-
 /* Story Content */
 .story-content {
     flex: 1;
@@ -1008,15 +928,6 @@ body {
         font-size: 2rem;
     }
 
-    .chapter-title {
-        font-size: 2rem;
-    }
-
-    .chapter-image {
-        max-width: 400px;
-        margin-bottom: 25px;
-    }
-
     .back-cover-content {
         padding: 56px 24px 34px;
     }
@@ -1107,26 +1018,9 @@ body {
         font-size: 1.75rem;
     }
 
-    .chapter-title {
-        font-size: 1.75rem;
-    }
-
-    .chapter-image {
-        max-width: 320px;
-        margin-bottom: 20px;
-    }
-
-    .chapter-tagline {
-        font-size: 1rem;
-    }
-
     .story-text {
         font-size: 0.95rem;
         line-height: 1.6;
-    }
-
-    .page-header {
-        margin-bottom: 20px;
     }
 
     .story-image {

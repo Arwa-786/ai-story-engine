@@ -55,7 +55,7 @@ ai-story-engine/
 ## 📖 Features
 
 - **Beautiful Book UI** - Classic book design with page flip animations
-- **Multiple Page Types** - Cover, chapters, single/multiple options, conversations, endings
+- **Multiple Page Types** - Cover, branching story pages (single/multiple options), conversations, endings
 - **Dynamic Back Cover** - Automatically generated with story summary and metadata
 - **PDF Export** - Export your story to PDF format
 - **Responsive Design** - Works on desktop, tablet, and mobile

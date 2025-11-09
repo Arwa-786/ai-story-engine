@@ -1,47 +1,57 @@
 import express, { Request, Response, Router } from "express";
-import { generateStoryTree as realGenerateStoryTree } from "../agents/orchestrator.js";
-import { StoryNode } from "../types/story.js";
+import {
+  generateTextFromHashes as realGenerateTextFromHashes,
+  type HashGenerationRequest,
+  type HashGenerationResult,
+} from "../agents/orchestrator.js";
 
-// Placeholder Agent Imports (MUST have .js extension for 'nodenext' module resolution)
-// These will be uncommented when the agents are implemented:
-// import { generateStoryText } from "../agents/textAgent.js";
-// import { generateImage } from "../agents/imageAgent.js";
-// import { generateNarration } from "../agents/audioAgent.js";
-
-export interface StoryDeps {
-  generateStoryTree: (genre: string) => Promise<StoryNode>;
+export interface TextRouterDeps {
+  generateText: (
+    request: HashGenerationRequest,
+  ) => Promise<HashGenerationResult>;
 }
 
-export function createStoryRouter(deps: StoryDeps): Router {
+export function createTextRouter(deps: TextRouterDeps): Router {
   const router: Router = express.Router();
 
-  router.post("/start", async (req: Request, res: Response) => {
-    const { genre } = req.body;
+  router.post("/generate", async (req: Request, res: Response) => {
+    const { inputs, instructions, jobId } = req.body as Partial<HashGenerationRequest>;
 
-    if (!genre) {
-      return res.status(400).json({ error: "Genre is required to start a story." });
+    if (!inputs || typeof inputs !== "object" || Array.isArray(inputs)) {
+      return res
+        .status(400)
+        .json({ error: "Request body must include an 'inputs' object." });
     }
 
     try {
-      // 1. ORCHESTRATION: Create the complete branching structure (all nodes)
-      const storyRootNode: StoryNode = await deps.generateStoryTree(genre);
-
-      // *******************************************************************
-      // 2. ENRICHMENT PHASE (future work)
-      // *******************************************************************
-
-      // 3. RESPONSE: Return the structured and enriched story tree to the frontend
-      return res.json(storyRootNode);
-
-    } catch (err) {
-      console.error("Error generating story:", err);
-      return res.status(500).json({ error: "Failed to generate story due to a server or AI error." });
+      const requestPayload: HashGenerationRequest = {
+        inputs,
+      };
+      
+      if (instructions !== undefined) {
+        requestPayload.instructions = instructions;
+      }
+      
+      if (jobId !== undefined) {
+        requestPayload.jobId = jobId;
+      }
+      
+      const result = await deps.generateText(requestPayload);
+      return res.json(result);
+    } catch (error) {
+      console.error("❌ Hash text route failed", error);
+      const detail = error instanceof Error ? error.message : "Unknown error";
+      return res.status(500).json({
+        error: "Failed to generate text from hash inputs.",
+        detail,
+      });
     }
   });
 
   return router;
 }
 
-// Default router using the real orchestrator for production runtime
-const defaultRouter = createStoryRouter({ generateStoryTree: realGenerateStoryTree });
+const defaultRouter = createTextRouter({
+  generateText: realGenerateTextFromHashes,
+});
 export default defaultRouter;

@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>AI Story Engine — Backend Test Console</title>
+    <title>AI Hash Text Console</title>
     <link rel="stylesheet" href="styles.css" />
     <style>
       :root {
@@ -296,13 +296,13 @@
     <main>
       <header>
         <h1>
-          Backend Validation Console
+          Hash Text Console
           <span>Live</span>
           <span id="topHealthStatus" class="status-chip" data-level="info">Awaiting health check…</span>
         </h1>
         <p class="lead">
-          Purpose-built harness to validate the backend orchestrator, story routes, and AI model integration.
-          Configure your environment, ping health, and assert end-to-end response fidelity before promoting changes.
+          Minimal harness for validating Gemini models routed exclusively through Cloudflare AI Gateway. Configure the backend
+          and send sample hash payloads directly to the gateway-backed text agent.
         </p>
       </header>
 
@@ -310,9 +310,9 @@
         <h2>Environment</h2>
         <div class="field-group">
           <label for="backendBaseUrl">Backend Base URL</label>
-          <input id="backendBaseUrl" type="text" placeholder="http://192.168.0.10:3000" spellcheck="false" />
+          <input id="backendBaseUrl" type="text" placeholder="http://localhost:3000" spellcheck="false" />
           <p class="helper-text">
-            Enter any reachable host (IP or domain) and port. We persist and normalise the URL locally for stable request composition.
+            Enter any reachable host (IP or domain) and port. We persist the URL locally for repeat sessions.
           </p>
         </div>
         <div class="button-row">
@@ -322,159 +322,38 @@
       </section>
 
       <section class="card">
-        <h2>Generate Story Tree</h2>
+        <h2>Cloudflare AI Gateway (Gemini) Playground</h2>
         <div class="field-group">
-          <label for="genreInput">Story Genre</label>
-          <input id="genreInput" type="text" placeholder="fantasy" />
-          <p class="helper-text">
-            Everything beyond topology (length, density, etc.) is driven by the backend orchestrator today.
-          </p>
-        </div>
-        <div class="button-row">
-          <button id="generateStoryButton" class="primary" type="button">Trigger Pipeline</button>
-        </div>
-
-        <div class="grid">
-          <div class="panel">
-            <h3>Request</h3>
-            <div id="requestMeta" class="helper-text">POST —</div>
-            <pre id="requestBody">—</pre>
-          </div>
-          <div class="panel">
-            <h3>Response</h3>
-            <div id="responseMeta" class="helper-text">Awaiting request…</div>
-            <pre id="responseBody"></pre>
-          </div>
-        </div>
-      </section>
-
-      <section class="card">
-        <h2>Text Agent (Gemini) — Enrich Node</h2>
-        <div class="field-group">
-          <label for="textGenreInput">Genre (for enrichment context)</label>
-          <input id="textGenreInput" type="text" placeholder="fantasy" />
-          <p class="helper-text">
-            Calls the backend text agent to refine a single node’s narrative given its JSON and genre context.
-          </p>
-        </div>
-        <div class="field-row">
-          <div class="field-group">
-            <label for="textNodeIdInput">Node ID</label>
-            <input id="textNodeIdInput" type="text" placeholder="N2_A" />
-          </div>
-          <div class="field-group">
-            <label for="textNodeDepthInput">Depth (optional)</label>
-            <input id="textNodeDepthInput" type="number" min="0" step="1" placeholder="0" />
-            <p class="helper-text">Leave blank when depth is unknown.</p>
-          </div>
-        </div>
-        <div class="field-row">
-          <div class="field-group">
-            <label for="textNodeParentPathInput">Parent Path</label>
-            <input id="textNodeParentPathInput" type="text" placeholder="root,N2_A" />
-            <p class="helper-text">Comma separated ancestor IDs (e.g., root,N2_A). Optional.</p>
-          </div>
-          <div class="field-group">
-            <label class="checkbox-label" for="textNodeIsEndingInput">
-              <input id="textNodeIsEndingInput" type="checkbox" />
-              <span>Mark node as ending</span>
-            </label>
-            <p class="helper-text">Ending nodes ignore choices.</p>
-          </div>
-        </div>
-        <div class="field-group">
-          <label for="textNodeTextInput">Narrative Text</label>
-          <textarea id="textNodeTextInput" rows="6" placeholder="Existing node text or draft narrative..."></textarea>
-        </div>
-        <div class="field-group">
-          <label for="textNodeChoicesInput">Choices (one per line)</label>
+          <label for="hashInputsTextarea">Hash Inputs (JSON object)</label>
           <textarea
-            id="textNodeChoicesInput"
-            rows="4"
-            placeholder="Investigate the relic | E1&#10;Return to camp | E2"
+            id="hashInputsTextarea"
+            rows="10"
+            spellcheck="false"
+            placeholder='{"topic":"hash pipelines","tone":"decisive"}'
           ></textarea>
           <p class="helper-text">
-            Format: choice text | nextNodeId. Leave blank for endings or when choices are pending.
+            Provide a simple JSON object. Keys become hash labels, values are passed as strings to the text agent.
           </p>
         </div>
-        <div class="button-row">
-          <button id="textEnrichButton" class="primary" type="button">Enrich Text</button>
-        </div>
-        <div class="grid">
-          <div class="panel">
-            <h3>Request</h3>
-            <div id="textRequestMeta" class="helper-text">POST —</div>
-            <pre id="textRequestBody">—</pre>
-          </div>
-          <div class="panel">
-            <h3>Response</h3>
-            <div id="textResponseMeta" class="helper-text">Awaiting request…</div>
-            <pre id="textResponseBody"></pre>
-          </div>
-        </div>
-      </section>
-
-      <section class="card">
-        <h2>Image Agent (Gemini) — Generate Image</h2>
         <div class="field-group">
-          <label for="imagePromptInput">Image Prompt</label>
-          <input id="imagePromptInput" type="text" placeholder="ancient forest temple at dusk" />
-          <p class="helper-text">
-            Endpoint: POST /api/agents/image — payload: {"{"} prompt: string {"}"}
-          </p>
+          <label for="instructionsTextarea">Optional Instructions</label>
+          <textarea
+            id="instructionsTextarea"
+            rows="3"
+            spellcheck="false"
+            placeholder="Summarise the inputs into a single paragraph."
+          ></textarea>
         </div>
         <div class="button-row">
-          <button id="imageGenerateButton" class="primary" type="button">Generate Image</button>
-        </div>
-        <div class="grid">
-          <div class="panel">
-            <h3>Request</h3>
-            <div id="imageRequestMeta" class="helper-text">POST —</div>
-            <pre id="imageRequestBody">—</pre>
-          </div>
-          <div class="panel">
-            <h3>Response</h3>
-            <div id="imageResponseMeta" class="helper-text">Awaiting request…</div>
-            <pre id="imageResponseBody"></pre>
-          </div>
+          <button id="loadSampleButton" class="secondary" type="button">Load Sample Hashes</button>
+          <button id="runTextAgentButton" class="primary" type="button">Call Cloudflare Gateway (/api/agents/text)</button>
         </div>
         <div class="panel">
-          <h3>Preview</h3>
-          <img
-            id="imagePreview"
-            alt="Generated preview"
-            style="max-width: 100%; border-radius: 12px; border: 1px solid rgba(148, 163, 184, 0.18);"
-          />
-        </div>
-      </section>
-
-      <section class="card">
-        <h2>Audio Agent (ElevenLabs) — Generate Narration</h2>
-        <div class="field-group">
-          <label for="audioTextInput">Narration Text</label>
-          <textarea id="audioTextInput" rows="4" placeholder="Write the narration to synthesise here..."></textarea>
-          <p class="helper-text">
-            Endpoint: POST /api/agents/audio — payload: {"{"} text: string {"}"}
-          </p>
-        </div>
-        <div class="button-row">
-          <button id="audioGenerateButton" class="primary" type="button">Generate Audio</button>
-        </div>
-        <div class="grid">
-          <div class="panel">
-            <h3>Request</h3>
-            <div id="audioRequestMeta" class="helper-text">POST —</div>
-            <pre id="audioRequestBody">—</pre>
-          </div>
-          <div class="panel">
-            <h3>Response</h3>
-            <div id="audioResponseMeta" class="helper-text">Awaiting request…</div>
-            <pre id="audioResponseBody"></pre>
-          </div>
-        </div>
-        <div class="panel">
-          <h3>Player</h3>
-          <audio id="audioPlayer" controls style="width: 100%"></audio>
+          <h3>Gateway Agent</h3>
+          <div id="agentRequestMeta" class="helper-text">POST —</div>
+          <pre id="agentRequestBody">—</pre>
+          <div id="agentResponseMeta" class="helper-text">Awaiting request…</div>
+          <pre id="agentResponseBody"></pre>
         </div>
       </section>
 

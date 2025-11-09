@@ -496,12 +496,6 @@ if (coverPage) {
   coverPage.addEventListener('click', flipToNextPage);
 }
 
-// Handle chapter page click
-const chapterPage = document.getElementById('chapterPage');
-if (chapterPage) {
-  chapterPage.addEventListener('click', flipToNextPage);
-}
-
 /**
  * Determine page type based on data attributes and options
  */
@@ -661,7 +655,7 @@ document.addEventListener('keydown', (event) => {
     const currentPage = pages[currentPageIndex];
     const pageType = currentPage?.dataset.page;
     
-    if (pageType === 'cover' || pageType === 'chapter') {
+    if (pageType === 'cover') {
       event.preventDefault();
       flipToNextPage();
     }
@@ -669,13 +663,11 @@ document.addEventListener('keydown', (event) => {
 });
 
 // Add cursor pointer to clickable pages
-[coverPage, chapterPage].forEach(page => {
-  if (page) {
-    page.addEventListener('mouseenter', () => {
-      page.style.cursor = 'pointer';
-    });
-  }
-});
+if (coverPage) {
+  coverPage.addEventListener('mouseenter', () => {
+    coverPage.style.cursor = 'pointer';
+  });
+}
 
 /**
  * =====================================================

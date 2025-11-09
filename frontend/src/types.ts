@@ -111,6 +111,35 @@ export interface StoryPage {
   options: OptionObject[];
 }
 
+/**
+ * Telemetry and tracking for user interactions and storyline flow
+ */
+export interface OptionSelectionEvent {
+  timestamp: string;
+  pageId: string;
+  pageIndex: number;
+  optionId: string;
+  optionText?: string;
+  pageType?: 'conversation' | 'single-option' | 'multiple-options' | 'static';
+}
+
+export interface StorylineEvent {
+  timestamp: string;
+  type: 'pageGenerated' | 'pageFlip' | 'branchRevealed' | 'coverSetup' | 'backCoverShown';
+  pageId?: string;
+  pageIndex?: number;
+  note?: string;
+}
+
+export interface StoryTelemetry {
+  optionSelections: OptionSelectionEvent[];
+  storyline: StorylineEvent[];
+}
+
+export interface StoryMetadata {
+  telemetry: StoryTelemetry;
+}
+
 export interface BackCover {
   summary: string;
   image?: ImageObject;
@@ -142,5 +171,6 @@ export interface Story {
   configuration: StoryConfiguration;
   definition?: StoryDefinition;
   structure?: StoryStructure;
+  metadata?: StoryMetadata;
 }
 

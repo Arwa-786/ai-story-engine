@@ -4,6 +4,7 @@ import cors from "cors";
 import { Readable } from "stream";
 import { generateTextFromHashes } from "./agents/textAgent.js";
 import { generateSpeech } from "./agents/speechAgents.js";
+import { createAudioRouter } from "./routes/agentRoutes.js";
 
 loadEnv();
 
@@ -17,6 +18,22 @@ app.use(
   }),
 );
 app.use(express.json({ limit: "2mb" }));
+
+// Audio agent route
+const elevenLabsToken = process.env.ELEVENLABS_TOKEN?.trim();
+const accountId = process.env.CLOUDFLARE_ACCOUNT_ID?.trim();
+const gatewayId = process.env.CLOUDFLARE_AI_GATEWAY_ID?.trim();
+
+if (elevenLabsToken && accountId && gatewayId) {
+  const audioRouter = createAudioRouter({
+    env: {
+      ELEVENLABS_TOKEN: elevenLabsToken,
+      AI_GATEWAY_ACCOUNT_ID: accountId,
+      AI_GATEWAY_ID: gatewayId,
+    },
+  });
+  app.use("/api/agents/audio", audioRouter);
+}
 
 app.get("/", (_req: Request, res: Response) => {
   res.status(200).json({ status: "ok" });

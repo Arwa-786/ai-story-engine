@@ -37,7 +37,7 @@ ai-story-engine/
 │   ├── types/
 │   │   └── html2pdf.d.ts    # Type definitions for html2pdf library
 │   ├── types.ts              # Core type definitions
-│   ├── main.ts               # Story creation page logic
+│   ├── index.ts              # Story creation page logic
 │   └── story.ts              # Story display & interaction logic
 ├── docs/
 │   ├── FEATURES.md           # Complete feature documentation

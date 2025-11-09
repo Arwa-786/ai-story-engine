@@ -1,7 +1,8 @@
 import type { StoryNode } from "../types/story.js";
 import {
   ensureGeminiClient,
-  getGeminiTextModelId,
+  getGeminiTextModelCandidates,
+  isGeminiModelNotFoundError,
 } from "../ai/geminiClient.js";
 
 interface GenerateStoryTextOptions {
@@ -36,21 +37,65 @@ export async function generateStoryText(
 
   try {
     const client = ensureGeminiClient();
-    const model = client.getGenerativeModel({
-      model: getGeminiTextModelId(),
-      generationConfig: {
-        maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
-        temperature: DEFAULT_TEMPERATURE,
-      },
-    });
+    const modelCandidates = getGeminiTextModelCandidates();
+    const attemptLog: Array<{ modelId: string; message: string }> = [];
 
-    const prompt = buildPrompt(node, options, originalText);
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const candidate = response.text().trim();
+    for (const modelId of modelCandidates) {
+      try {
+        const model = client.getGenerativeModel({
+          model: modelId,
+          generationConfig: {
+            maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
+            temperature: DEFAULT_TEMPERATURE,
+          },
+        });
 
-    const enriched = extractTextPayload(candidate);
-    return enriched.length > 0 ? enriched : originalText;
+        const prompt = buildPrompt(node, options, originalText);
+        const result = await model.generateContent(prompt);
+        const response = await result.response;
+        const candidate = response.text().trim();
+
+        const enriched = extractTextPayload(candidate);
+        if (enriched.length > 0) {
+          return enriched;
+        }
+
+        console.warn(
+          `⚠️ Gemini model "${modelId}" returned empty enrichment for node "${node.id}". Falling back to baseline text.`,
+        );
+        return originalText;
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : typeof error === "string"
+              ? error
+              : "Unknown error";
+        attemptLog.push({ modelId, message });
+
+        if (isGeminiModelNotFoundError(error)) {
+          console.warn(
+            `🚧 Gemini text model "${modelId}" unavailable for node "${node.id}" (${message}). Trying next fallback.`,
+          );
+          continue;
+        }
+
+        throw error;
+      }
+    }
+
+    if (attemptLog.length > 0) {
+      const summary = attemptLog
+        .map(({ modelId, message }) => `"${modelId}" → ${message}`)
+        .join("; ");
+      throw new Error(
+        `Gemini text enrichment exhausted all model fallbacks for node "${node.id}". Attempts: ${summary}`,
+      );
+    }
+
+    throw new Error(
+      `Gemini text enrichment exhausted all model fallbacks for node "${node.id}" without any recorded attempts.`,
+    );
   } catch (error) {
     console.error(
       `❌ Gemini text agent failed for node "${node.id}":`,

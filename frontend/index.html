@@ -175,11 +175,17 @@
             <section class="form-section">
                 <div class="setting-item full-width">
                     <label class="setting-label" for="geminiApiKey">Gemini API Key</label>
+                    <p class="setting-help">
+                        Required for Google Gemini features. Stored locally and sent only when generating a story.
+                    </p>
                     <input 
                         type="password" 
                         id="geminiApiKey" 
                         class="api-key-input" 
                         placeholder="Enter your Gemini API key"
+                        autocomplete="off"
+                        spellcheck="false"
+                        inputmode="text"
                     >
                 </div>
             </section>
@@ -188,7 +194,7 @@
         </main>
     </div>
 
-    <script type="module" src="/src/main.ts"></script>
+    <script type="module" src="/src/index.ts"></script>
 </body>
 </html>
 

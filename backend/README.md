@@ -30,9 +30,9 @@ ENABLE_HYBRID_ENRICH=false  # When true and GEMINI_API_KEY is set, enriches Clou
 
 ```
 GEMINI_API_KEY=your_api_key
-GEMINI_MODEL_ID=gemini-1.5-pro
+GEMINI_MODEL_ID=gemini-1.5-pro-latest
 # Optional overrides for enrichment agents
-# GEMINI_TEXT_MODEL_ID=gemini-1.5-pro
+# GEMINI_TEXT_MODEL_ID=gemini-1.5-pro-latest
 # GEMINI_TEXT_MAX_OUTPUT_TOKENS=1024
 # GEMINI_TEXT_TEMPERATURE=0.7
 ```

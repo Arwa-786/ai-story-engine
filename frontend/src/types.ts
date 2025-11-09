@@ -82,6 +82,7 @@ export interface OptionActionGoToNextPage {
 
 export interface OptionActionBranch {
   type: 'branch';
+  text: string;
   options: OptionObject[];
 }
 

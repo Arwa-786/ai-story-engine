@@ -307,71 +307,34 @@
       </header>
 
       <section class="card">
-        <h2>Environment</h2>
+        <h2>Server Health</h2>
         <div class="field-group">
           <label for="backendBaseUrl">Backend Base URL</label>
           <input id="backendBaseUrl" type="text" placeholder="http://localhost:3000" spellcheck="false" />
-          <p class="helper-text">
-            Enter any reachable host (IP or domain) and port. We persist the URL locally for repeat sessions.
-          </p>
         </div>
         <div class="button-row">
-          <button id="pingHealthButton" class="secondary" type="button">Check</button>
+          <button id="healthCheckButton" class="secondary" type="button">Check Health</button>
+          <button id="pingButton" class="secondary" type="button">Ping x5</button>
         </div>
         <div id="healthStatus" class="status-chip" data-level="info">Awaiting health check…</div>
+        <div id="pingStatus" class="helper-text">No ping yet.</div>
       </section>
 
       <section class="card">
-        <h2>Cloudflare AI Gateway (Gemini) Playground</h2>
-        <div class="field-group">
-          <label for="hashInputsTextarea">Hash Inputs (JSON object)</label>
-          <textarea
-            id="hashInputsTextarea"
-            rows="10"
-            spellcheck="false"
-            placeholder='{"topic":"hash pipelines","tone":"decisive"}'
-          ></textarea>
-          <p class="helper-text">
-            Provide a simple JSON object. Keys become hash labels, values are passed as strings to the text agent.
-          </p>
-        </div>
-        <div class="field-group">
-          <label for="instructionsTextarea">Optional Instructions</label>
-          <textarea
-            id="instructionsTextarea"
-            rows="3"
-            spellcheck="false"
-            placeholder="Summarise the inputs into a single paragraph."
-          ></textarea>
-        </div>
-        <div class="button-row">
-          <button id="loadSampleButton" class="secondary" type="button">Load Sample Hashes</button>
-          <button id="runTextAgentButton" class="primary" type="button">Call Cloudflare Gateway (/api/text/generate)</button>
-        </div>
-        <div class="panel">
-          <h3>Gateway Agent</h3>
-          <div id="agentRequestMeta" class="helper-text">POST —</div>
-          <pre id="agentRequestBody">—</pre>
-          <div id="agentResponseMeta" class="helper-text">Awaiting request…</div>
-          <pre id="agentResponseBody"></pre>
-        </div>
-      </section>
-
-      <section class="card">
-        <h2>StoryDefinition Generator</h2>
+        <h2>StoryDefinition (from Prompt)</h2>
         <div class="field-group">
           <div class="field-row">
             <div>
-              <label for="storyLength">Length</label>
-              <select id="storyLength">
+              <label for="sdLength">Length</label>
+              <select id="sdLength">
                 <option value="short">short</option>
                 <option value="medium" selected>medium</option>
                 <option value="long">long</option>
               </select>
             </div>
             <div>
-              <label for="storyDensity">Density</label>
-              <select id="storyDensity">
+              <label for="sdDensity">Density</label>
+              <select id="sdDensity">
                 <option value="short">short</option>
                 <option value="medium" selected>medium</option>
                 <option value="dense">dense</option>
@@ -380,70 +343,62 @@
           </div>
         </div>
         <div class="field-group">
-          <label for="storyDescription">Description</label>
+          <label for="sdPrompt">Concept / Prompt for StoryDefinition</label>
           <textarea
-            id="storyDescription"
+            id="sdPrompt"
             rows="5"
-            spellcheck="false"
-            placeholder="A cozy mystery about a librarian in a seaside town."
-          ></textarea>
-        </div>
-        <div class="button-row">
-          <button id="runDefineButton" class="primary" type="button">Generate StoryDefinition (/api/story/define)</button>
-        </div>
-        <div class="panel">
-          <h3>StoryDefinition Request</h3>
-          <div id="defineRequestMeta" class="helper-text">POST —</div>
-          <pre id="defineRequestBody">—</pre>
-          <div id="defineResponseMeta" class="helper-text">Awaiting request…</div>
-          <pre id="defineResponseBody"></pre>
-        </div>
-      </section>
-
-      <section class="card">
-        <h2>Storyline (Definition + Pages)</h2>
-        <div class="field-group">
-          <div class="field-row">
-            <div>
-              <label for="slLength">Length</label>
-              <select id="slLength">
-                <option value="short">short</option>
-                <option value="medium" selected>medium</option>
-                <option value="long">long</option>
-              </select>
-            </div>
-            <div>
-              <label for="slDensity">Density</label>
-              <select id="slDensity">
-                <option value="short">short</option>
-                <option value="medium" selected>medium</option>
-                <option value="dense">dense</option>
-              </select>
-            </div>
-          </div>
-        </div>
-        <div class="field-group">
-          <label for="slDescription">Concept / Description</label>
-          <textarea
-            id="slDescription"
-            rows="4"
             spellcheck="false"
             placeholder="A cozy mystery in a seaside town about a retired chef who solves a peculiar disappearance during the annual chowder festival."
           ></textarea>
         </div>
         <div class="button-row">
-          <button id="slRunDefineButton" class="primary" type="button">Generate StoryDefinition (/api/story/define)</button>
-          <button id="slFirstPageButton" class="secondary" type="button">Generate First Page (/api/story/step)</button>
+          <button id="sdDefineButton" class="primary" type="button">Generate StoryDefinition (/api/story/define)</button>
         </div>
         <div class="panel">
-          <h3>StoryDefinition (active)</h3>
-          <div id="slDefineResponseMeta" class="helper-text">Awaiting definition…</div>
-          <pre id="slDefineResponseBody">—</pre>
+          <h3>Definition JSON</h3>
+          <div id="sdDefineStatus" class="helper-text">Awaiting request…</div>
+          <pre id="sdDefinitionOut">—</pre>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Storyline Generator (Manual JSON)</h2>
+        <div class="field-group">
+          <label for="sdDefinitionJson">StoryDefinition JSON</label>
+          <textarea
+            id="sdDefinitionJson"
+            rows="12"
+            spellcheck="false"
+            placeholder='Paste a StoryDefinition object matching frontend/src/types.ts'
+          ></textarea>
+        </div>
+        <div class="field-group">
+          <label for="sdPreviousOptionJson">Optional Previous Option (OptionObject JSON)</label>
+          <textarea
+            id="sdPreviousOptionJson"
+            rows="8"
+            spellcheck="false"
+            placeholder='{"id":"opt-1","text":"Investigate the pier","action":{"type":"goToNextPage"}}'
+          ></textarea>
+          <p class="helper-text">Leave empty for first page. Use an option from a previous page response.</p>
+        </div>
+        <div class="field-row">
+          <div>
+            <label for="sdStepIndex">Page Index</label>
+            <input id="sdStepIndex" type="number" min="0" step="1" value="0" />
+          </div>
+        </div>
+        <div class="button-row">
+          <button id="sdGenerateButton" class="primary" type="button">Generate Page (/api/story/step)</button>
         </div>
         <div class="panel">
-          <h3>Storyline</h3>
-          <div id="slPageStatus" class="status-chip" data-level="info">No pages yet.</div>
-          <div id="slStoryContainer" class="log-area"></div>
+          <h3>Page JSON</h3>
+          <div id="sdPageStatus" class="helper-text">Awaiting request…</div>
+          <pre id="sdPageJson">—</pre>
+        </div>
+        <div class="panel">
+          <h3>Rendered Page</h3>
+          <div id="sdRenderedPage" class="log-area"></div>
         </div>
       </section>
 
@@ -476,6 +431,45 @@
       </section>
 
       <section class="card">
+        <h2>Speech (ElevenLabs via Cloudflare Gateway)</h2>
+        <div class="field-group">
+          <label for="speechTextTextarea">Text to Speak</label>
+          <textarea
+            id="speechTextTextarea"
+            rows="4"
+            spellcheck="false"
+            placeholder="Read a short excerpt from the current story page."
+          ></textarea>
+        </div>
+        <div class="field-row">
+          <div>
+            <label for="speechGenreSelect">Genre (optional)</label>
+            <select id="speechGenreSelect">
+              <option value="">(auto/default)</option>
+              <option value="adventure">adventure</option>
+              <option value="fantasy">fantasy</option>
+              <option value="scifi">scifi</option>
+              <option value="horror">horror</option>
+              <option value="mystery">mystery</option>
+              <option value="romance">romance</option>
+              <option value="comedy">comedy</option>
+              <option value="drama">drama</option>
+              <option value="action">action</option>
+              <option value="historical">historical</option>
+            </select>
+          </div>
+        </div>
+        <div class="button-row">
+          <button id="runSpeechButton" class="primary" type="button">Generate Speech (/api/speech/generate)</button>
+        </div>
+        <div class="panel">
+          <h3>Speech Status</h3>
+          <div id="speechStatus" class="helper-text">Awaiting request…</div>
+          <audio id="speechAudio" controls style="width: 100%;"></audio>
+        </div>
+      </section>
+
+      <section class="card">
         <h2>Execution Log</h2>
         <div id="logArea" class="log-area"></div>
       </section>
@@ -502,129 +496,285 @@
           return await res.json();
         };
 
-        let slDefinition = null;
-        let slPages = [];
+        // Health check
+        byId("healthCheckButton").addEventListener("click", async () => {
+          const base = getBase();
+          const status = byId("healthStatus");
+          status.textContent = "Checking…";
+          status.setAttribute("data-level", "info");
+          try {
+            const res = await fetch(`${base}/api/text/generate`, { method: "GET" });
+            if (!res.ok) throw new Error("HTTP " + res.status);
+            const body = await res.json().catch(() => ({}));
+            const isOk = body && (body.health === "ok" || body.status === "ok");
+            if (isOk) {
+              const model = body?.env?.modelId ? ` model=${body.env.modelId}` : "";
+              status.textContent = "Server OK" + model;
+              status.setAttribute("data-level", "success");
+            } else {
+              status.textContent = "Unexpected response";
+              status.setAttribute("data-level", "error");
+            }
+          } catch (e) {
+            status.textContent = "Error: " + (e && e.message ? e.message : String(e));
+            status.setAttribute("data-level", "error");
+          }
+        });
 
-        function renderDefinition(def) {
-          byId("slDefineResponseMeta").textContent = "OK";
-          byId("slDefineResponseBody").textContent = JSON.stringify(def, null, 2);
-        }
+        // Ping x5 to assess connection quality
+        byId("pingButton").addEventListener("click", async () => {
+          const base = getBase();
+          const out = byId("pingStatus");
+          out.textContent = "Pinging…";
+          const samples = 5;
+          const times = [];
+          let ok = 0;
+          for (let i = 0; i < samples; i++) {
+            const t0 = performance.now();
+            try {
+              const res = await fetch(`${base}/`, { method: "GET", cache: "no-store" });
+              if (!res.ok) throw new Error("HTTP " + res.status);
+              await res.json().catch(() => ({}));
+              const dt = performance.now() - t0;
+              times.push(dt);
+              ok++;
+            } catch {
+              times.push(NaN);
+            }
+          }
+          const valid = times.filter((t) => Number.isFinite(t));
+          if (valid.length === 0) {
+            out.textContent = "Ping failed (no successful responses).";
+            return;
+          }
+          const min = Math.min(...valid);
+          const max = Math.max(...valid);
+          const avg = valid.reduce((a, b) => a + b, 0) / valid.length;
+          const fmt = (n) => Math.round(n);
+          out.textContent = `Ping: ${ok}/${samples} ok — min ${fmt(min)}ms / avg ${fmt(avg)}ms / max ${fmt(max)}ms`;
+        });
 
-        function renderStory() {
-          const container = byId("slStoryContainer");
+        function renderPage(page) {
+          const container = byId("sdRenderedPage");
           container.innerHTML = "";
-          if (slPages.length === 0) {
-            byId("slPageStatus").textContent = "No pages yet.";
-            byId("slPageStatus").setAttribute("data-level", "info");
-            return;
+          const card = document.createElement("div");
+          card.className = "panel";
+
+          const text = document.createElement("div");
+          text.textContent = page.text || "";
+          card.appendChild(text);
+
+          if (page.image && (page.image.alt || page.image.prompt)) {
+            const imgMeta = document.createElement("div");
+            imgMeta.className = "helper-text";
+            imgMeta.textContent = "image.alt: " + (page.image.alt || "") + " | prompt: " + (page.image.prompt || "");
+            card.appendChild(imgMeta);
           }
-          byId("slPageStatus").textContent = "Pages: " + slPages.length;
-          byId("slPageStatus").setAttribute("data-level", "success");
 
-          for (const page of slPages) {
-            const card = document.createElement("div");
-            card.className = "panel";
+          const optsWrap = document.createElement("div");
+          optsWrap.style.display = "grid";
+          optsWrap.style.gap = "8px";
+          for (const opt of page.options || []) {
+            const row = document.createElement("div");
+            row.style.display = "flex";
+            row.style.gap = "8px";
+            row.style.alignItems = "flex-start";
 
-            const text = document.createElement("div");
-            text.textContent = page.text || "";
-            card.appendChild(text);
+            const chip = document.createElement("span");
+            chip.className = "status-chip";
+            chip.textContent = opt.action && opt.action.type ? String(opt.action.type) : "option";
+            chip.setAttribute("data-level", "info");
 
-            if (page.image && (page.image.alt || page.image.prompt)) {
-              const imgMeta = document.createElement("div");
-              imgMeta.className = "helper-text";
-              imgMeta.textContent = "image.alt: " + (page.image.alt || "") + " | prompt: " + (page.image.prompt || "");
-              card.appendChild(imgMeta);
+            const block = document.createElement("div");
+            block.style.display = "grid";
+            block.style.gap = "6px";
+
+            const topLine = document.createElement("div");
+            topLine.style.display = "flex";
+            topLine.style.gap = "8px";
+            topLine.style.alignItems = "center";
+
+            const label = document.createElement("span");
+            label.textContent = opt.text || "(option)";
+
+            const useBtn = document.createElement("button");
+            useBtn.className = "secondary";
+            useBtn.type = "button";
+            useBtn.textContent = "Use as previousOption";
+            useBtn.onclick = () => {
+              try {
+                byId("sdPreviousOptionJson").value = JSON.stringify(opt, null, 2);
+                byId("sdPreviousOptionJson").scrollIntoView({ behavior: "smooth", block: "center" });
+              } catch {
+                byId("sdPreviousOptionJson").value = "";
+              }
+            };
+
+            topLine.appendChild(label);
+            topLine.appendChild(useBtn);
+            block.appendChild(topLine);
+
+            // Nested branch rendering
+            if (opt.action && opt.action.type === "branch" && Array.isArray(opt.action.options)) {
+              const branchText = document.createElement("div");
+              branchText.className = "helper-text";
+              branchText.textContent = opt.action.text ? String(opt.action.text) : "(branch)";
+              block.appendChild(branchText);
+
+              const nested = document.createElement("div");
+              nested.style.display = "grid";
+              nested.style.gap = "6px";
+              nested.style.paddingLeft = "12px";
+              for (const sub of opt.action.options) {
+                const subRow = document.createElement("div");
+                subRow.style.display = "flex";
+                subRow.style.gap = "8px";
+                subRow.style.alignItems = "center";
+
+                const subChip = document.createElement("span");
+                subChip.className = "status-chip";
+                subChip.textContent = sub.action && sub.action.type ? String(sub.action.type) : "option";
+                subChip.setAttribute("data-level", "info");
+
+                const subLabel = document.createElement("span");
+                subLabel.textContent = sub.text || "(option)";
+
+                const subUse = document.createElement("button");
+                subUse.className = "secondary";
+                subUse.type = "button";
+                subUse.textContent = "Use nested option";
+                subUse.onclick = () => {
+                  try {
+                    byId("sdPreviousOptionJson").value = JSON.stringify(sub, null, 2);
+                    byId("sdPreviousOptionJson").scrollIntoView({ behavior: "smooth", block: "center" });
+                  } catch {
+                    byId("sdPreviousOptionJson").value = "";
+                  }
+                };
+
+                subRow.appendChild(subChip);
+                subRow.appendChild(subLabel);
+                subRow.appendChild(subUse);
+                nested.appendChild(subRow);
+              }
+              block.appendChild(nested);
             }
 
-            // Options
-            const optsWrap = document.createElement("div");
-            optsWrap.style.display = "grid";
-            optsWrap.style.gap = "8px";
-            for (const opt of page.options || []) {
-              const row = document.createElement("div");
-              row.style.display = "flex";
-              row.style.gap = "8px";
-              row.style.alignItems = "center";
-
-              const chip = document.createElement("span");
-              chip.className = "status-chip";
-              chip.textContent = opt.action && opt.action.type ? String(opt.action.type) : "option";
-              chip.setAttribute("data-level", "info");
-
-              const btn = document.createElement("button");
-              btn.className = "secondary";
-              btn.type = "button";
-              btn.textContent = opt.text || "(choose)";
-              btn.onclick = () => onChooseOption(opt);
-
-              row.appendChild(chip);
-              row.appendChild(btn);
-              optsWrap.appendChild(row);
-            }
-            card.appendChild(optsWrap);
-            container.appendChild(card);
+            row.appendChild(chip);
+            row.appendChild(block);
+            optsWrap.appendChild(row);
           }
+          card.appendChild(optsWrap);
+          container.appendChild(card);
         }
 
-        byId("slRunDefineButton").addEventListener("click", async () => {
+        // Generate StoryDefinition from prompt
+        byId("sdDefineButton").addEventListener("click", async () => {
           const base = getBase();
-          byId("slDefineResponseMeta").textContent = "Requesting definition…";
+          const status = byId("sdDefineStatus");
+          const pre = byId("sdDefinitionOut");
+          status.textContent = "Generating definition…";
           try {
-            const length = byId("slLength").value;
-            const density = byId("slDensity").value;
-            const description = byId("slDescription").value.trim();
+            const length = byId("sdLength").value;
+            const density = byId("sdDensity").value;
+            const description = byId("sdPrompt").value.trim();
             const def = await postJson(`${base}/api/story/define`, { length, density, description });
-            slDefinition = def;
-            slPages = [];
-            renderDefinition(def);
-            renderStory();
+            pre.textContent = JSON.stringify(def, null, 2);
+            status.textContent = "OK";
+            // Auto-fill the JSON textarea for storyline generation
+            byId("sdDefinitionJson").value = JSON.stringify(def, null, 2);
           } catch (e) {
-            byId("slDefineResponseMeta").textContent = "Error: " + e.message;
+            status.textContent = "Error: " + (e && e.message ? e.message : String(e));
           }
         });
 
-        byId("slFirstPageButton").addEventListener("click", async () => {
-          if (!slDefinition) {
-            byId("slPageStatus").textContent = "Please generate a StoryDefinition first.";
-            byId("slPageStatus").setAttribute("data-level", "error");
-            return;
-          }
+        byId("sdGenerateButton").addEventListener("click", async () => {
           const base = getBase();
-          byId("slPageStatus").textContent = "Generating first page…";
-          byId("slPageStatus").setAttribute("data-level", "info");
+          const status = byId("sdPageStatus");
+          const pre = byId("sdPageJson");
+          status.textContent = "Generating page…";
           try {
-            const page = await postJson(`${base}/api/story/step`, { definition: slDefinition });
-            slPages.push(page);
-            renderStory();
+            const raw = byId("sdDefinitionJson").value;
+            const stepIndexRaw = byId("sdStepIndex").value;
+            const parsed = JSON.parse(raw);
+            let stepIndex = Number.parseInt(String(stepIndexRaw), 10);
+            if (!Number.isInteger(stepIndex) || stepIndex < 0) stepIndex = 0;
+            const payload = { definition: parsed, stepIndex };
+            const prevRaw = (byId("sdPreviousOptionJson").value || "").trim();
+            if (prevRaw.length > 0) {
+              try {
+                const prevObj = JSON.parse(prevRaw);
+                // basic shape check
+                if (typeof prevObj !== "object" || prevObj === null) {
+                  throw new Error("Invalid previousOption");
+                }
+                payload["previousOption"] = prevObj;
+              } catch (e) {
+                status.textContent = "Error: invalid previousOption JSON";
+                return;
+              }
+            }
+            const page = await postJson(`${base}/api/story/step`, payload);
+            pre.textContent = JSON.stringify(page, null, 2);
+            status.textContent = "OK";
+            renderPage(page);
           } catch (e) {
-            byId("slPageStatus").textContent = "Error: " + e.message;
-            byId("slPageStatus").setAttribute("data-level", "error");
+            status.textContent = "Error: " + (e && e.message ? e.message : String(e));
           }
         });
 
-        async function onChooseOption(option) {
-          if (!slDefinition) {
-            byId("slPageStatus").textContent = "Please generate a StoryDefinition first.";
-            byId("slPageStatus").setAttribute("data-level", "error");
-            return;
-          }
-          const base = getBase();
-          byId("slPageStatus").textContent = "Generating next page…";
-          byId("slPageStatus").setAttribute("data-level", "info");
-          try {
-            const page = await postJson(`${base}/api/story/step`, {
-              definition: slDefinition,
-              previousOption: option
-            });
-            slPages.push(page);
-            renderStory();
-          } catch (e) {
-            byId("slPageStatus").textContent = "Error: " + e.message;
-            byId("slPageStatus").setAttribute("data-level", "error");
-          }
-        }
+        // Speech: POST /api/speech/generate and play audio
+        (function () {
+          let lastObjectUrl = null;
+          const cleanupUrl = () => {
+            if (lastObjectUrl) {
+              URL.revokeObjectURL(lastObjectUrl);
+              lastObjectUrl = null;
+            }
+          };
+          byId("runSpeechButton").addEventListener("click", async () => {
+            const base = getBase();
+            const btn = byId("runSpeechButton");
+            const status = byId("speechStatus");
+            const audioEl = byId("speechAudio");
+            const text = (byId("speechTextTextarea").value || "").trim();
+            const genre = (byId("speechGenreSelect").value || "").trim();
+            if (!text) {
+              status.textContent = "Please enter text to speak.";
+              return;
+            }
+            btn.disabled = true;
+            status.textContent = "Requesting speech…";
+            cleanupUrl();
+            audioEl.removeAttribute("src");
+            try {
+              const res = await fetch(`${base}/api/speech/generate`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(genre ? { text, genre } : { text }),
+              });
+              if (!res.ok) {
+                const errText = await res.text().catch(() => "");
+                throw new Error(errText || `HTTP ${res.status}`);
+              }
+              const blob = await res.blob();
+              const url = URL.createObjectURL(blob);
+              lastObjectUrl = url;
+              audioEl.src = url;
+              status.textContent = "OK — ready to play.";
+              await audioEl.play().catch(() => { /* ignore autoplay blocks */ });
+            } catch (e) {
+              status.textContent = "Error: " + (e && e.message ? e.message : String(e));
+            } finally {
+              btn.disabled = false;
+            }
+          });
+          // Revoke object URL when page unloads
+          window.addEventListener("beforeunload", () => {
+            try { cleanupUrl(); } catch {}
+          });
+        })();
       })();
     </script>
-    <script type="module" src="/src/test-backend.ts"></script>
   </body>
 </html>

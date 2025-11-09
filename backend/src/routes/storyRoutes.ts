@@ -37,10 +37,15 @@ export function createStoryRouter(): Router {
     const body = req.body ?? {};
     const definition = (body as { definition?: StoryDefinition }).definition;
     const previousOption = (body as { previousOption?: OptionObject }).previousOption;
+    let stepIndexRaw = (body as { stepIndex?: unknown; pageNumber?: unknown }).stepIndex;
+    const pageNumberRaw = (body as { stepIndex?: unknown; pageNumber?: unknown }).pageNumber;
+    if (stepIndexRaw === undefined && pageNumberRaw !== undefined) {
+      stepIndexRaw = pageNumberRaw;
+    }
 
     if (!definition || typeof definition !== "object") {
       return res.status(400).json({
-        error: "Invalid payload. Expect { definition, previousOption? } where definition is a StoryDefinition.",
+        error: "Invalid payload. Expect { definition, stepIndex?, previousOption? } where definition is a StoryDefinition.",
       });
     }
 
@@ -59,7 +64,19 @@ export function createStoryRouter(): Router {
     }
 
     try {
-      const page = await generateNextStoryPage(definition as StoryDefinition, previousOption as OptionObject | undefined);
+      let stepIndex = 0;
+      if (typeof stepIndexRaw === "number" && Number.isInteger(stepIndexRaw) && stepIndexRaw >= 0) {
+        stepIndex = stepIndexRaw;
+      } else if (typeof stepIndexRaw === "string" && stepIndexRaw.trim().length > 0) {
+        const n = Number.parseInt(stepIndexRaw, 10);
+        if (Number.isInteger(n) && n >= 0) stepIndex = n;
+      }
+
+      const page = await generateNextStoryPage(
+        definition as StoryDefinition,
+        stepIndex,
+        previousOption as OptionObject | undefined,
+      );
       return res.json(page);
     } catch (err) {
       console.error("Error generating StoryPage:", err);

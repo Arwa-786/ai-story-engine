@@ -5,6 +5,7 @@ import { Readable } from "stream";
 import { generateTextFromHashes } from "./agents/textAgent.js";
 import { generateSpeech } from "./agents/speechAgents.js";
 import { createAudioRouter } from "./routes/agentRoutes.js";
+import storyRouter from "./routes/storyRoutes.js";
 
 loadEnv();
 
@@ -38,6 +39,9 @@ if (elevenLabsToken && accountId && gatewayId) {
 app.get("/", (_req: Request, res: Response) => {
   res.status(200).json({ status: "ok" });
 });
+
+// Mount story routes (includes POST /api/story/define)
+app.use("/api/story", storyRouter);
 
 // Readiness probe for the text generation endpoint
 app.get("/api/text/generate", (_req: Request, res: Response) => {

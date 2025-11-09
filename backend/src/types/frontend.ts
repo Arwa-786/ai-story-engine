@@ -38,6 +38,35 @@ export interface ImageObject {
   prompt?: string;
 }
 
+/**
+ * Interactive story structures (mirror of frontend/src/types.ts)
+ */
+export interface OptionActionGoToNextPage {
+  type: 'goToNextPage';
+}
+
+export interface OptionActionBranch {
+  type: 'branch';
+  options: OptionObject[];
+}
+
+export type OptionAction =
+  | OptionActionGoToNextPage
+  | OptionActionBranch;
+
+export interface OptionObject {
+  id: string;
+  text: string;
+  action: OptionAction;
+}
+
+export interface StoryPage {
+  id: string;
+  text: string;
+  image?: ImageObject;
+  options: OptionObject[];
+}
+
 export interface StoryDefinition {
   title: string;
   genre: string;

@@ -1,6 +1,7 @@
 import express, { type Request, type Response, type Router } from "express";
 import { generateStoryDefinitionFromConfiguration } from "../generators/promptGenerator.js";
-import { type StoryConfiguration } from "../types/frontend.js";
+import { generateNextStoryPage } from "../generators/storylineGenerator.js";
+import { type StoryConfiguration, type StoryDefinition, type OptionObject } from "../types/frontend.js";
 
 export function createStoryRouter(): Router {
   const router: Router = express.Router();
@@ -28,6 +29,41 @@ export function createStoryRouter(): Router {
     } catch (err) {
       console.error("Error generating StoryDefinition:", err);
       return res.status(502).json({ error: "Failed to generate StoryDefinition." });
+    }
+  });
+
+  // Generate the next StoryPage guided by StoryDefinition and an optional previous OptionObject
+  router.post("/step", async (req: Request, res: Response) => {
+    const body = req.body ?? {};
+    const definition = (body as { definition?: StoryDefinition }).definition;
+    const previousOption = (body as { previousOption?: OptionObject }).previousOption;
+
+    if (!definition || typeof definition !== "object") {
+      return res.status(400).json({
+        error: "Invalid payload. Expect { definition, previousOption? } where definition is a StoryDefinition.",
+      });
+    }
+
+    // Light validation on previousOption shape if provided
+    if (previousOption) {
+      const ok =
+        typeof previousOption.id === "string" &&
+        typeof previousOption.text === "string" &&
+        previousOption.action &&
+        typeof (previousOption.action as { type?: unknown }).type === "string";
+      if (!ok) {
+        return res.status(400).json({
+          error: "Invalid previousOption. Must match OptionObject shape.",
+        });
+      }
+    }
+
+    try {
+      const page = await generateNextStoryPage(definition as StoryDefinition, previousOption as OptionObject | undefined);
+      return res.json(page);
+    } catch (err) {
+      console.error("Error generating StoryPage:", err);
+      return res.status(502).json({ error: "Failed to generate StoryPage." });
     }
   });
 

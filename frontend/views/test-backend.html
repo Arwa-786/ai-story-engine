@@ -401,11 +401,202 @@
       </section>
 
       <section class="card">
+        <h2>Storyline (Definition + Pages)</h2>
+        <div class="field-group">
+          <div class="field-row">
+            <div>
+              <label for="slLength">Length</label>
+              <select id="slLength">
+                <option value="short">short</option>
+                <option value="medium" selected>medium</option>
+                <option value="long">long</option>
+              </select>
+            </div>
+            <div>
+              <label for="slDensity">Density</label>
+              <select id="slDensity">
+                <option value="short">short</option>
+                <option value="medium" selected>medium</option>
+                <option value="dense">dense</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        <div class="field-group">
+          <label for="slDescription">Concept / Description</label>
+          <textarea
+            id="slDescription"
+            rows="4"
+            spellcheck="false"
+            placeholder="A cozy mystery in a seaside town about a retired chef who solves a peculiar disappearance during the annual chowder festival."
+          ></textarea>
+        </div>
+        <div class="button-row">
+          <button id="slRunDefineButton" class="primary" type="button">Generate StoryDefinition (/api/story/define)</button>
+          <button id="slFirstPageButton" class="secondary" type="button">Generate First Page (/api/story/step)</button>
+        </div>
+        <div class="panel">
+          <h3>StoryDefinition (active)</h3>
+          <div id="slDefineResponseMeta" class="helper-text">Awaiting definition…</div>
+          <pre id="slDefineResponseBody">—</pre>
+        </div>
+        <div class="panel">
+          <h3>Storyline</h3>
+          <div id="slPageStatus" class="status-chip" data-level="info">No pages yet.</div>
+          <div id="slStoryContainer" class="log-area"></div>
+        </div>
+      </section>
+
+      <section class="card">
         <h2>Execution Log</h2>
         <div id="logArea" class="log-area"></div>
       </section>
     </main>
 
+    <script>
+      (function () {
+        const byId = (id) => document.getElementById(id);
+        const getBase = () => {
+          const el = byId("backendBaseUrl");
+          const v = (el && el.value || "").trim();
+          return v.length ? v.replace(/\/$/, "") : "http://localhost:3000";
+        };
+        const postJson = async (url, data) => {
+          const res = await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(data),
+          });
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error || ("Request failed: " + res.status));
+          }
+          return await res.json();
+        };
+
+        let slDefinition = null;
+        let slPages = [];
+
+        function renderDefinition(def) {
+          byId("slDefineResponseMeta").textContent = "OK";
+          byId("slDefineResponseBody").textContent = JSON.stringify(def, null, 2);
+        }
+
+        function renderStory() {
+          const container = byId("slStoryContainer");
+          container.innerHTML = "";
+          if (slPages.length === 0) {
+            byId("slPageStatus").textContent = "No pages yet.";
+            byId("slPageStatus").setAttribute("data-level", "info");
+            return;
+          }
+          byId("slPageStatus").textContent = "Pages: " + slPages.length;
+          byId("slPageStatus").setAttribute("data-level", "success");
+
+          for (const page of slPages) {
+            const card = document.createElement("div");
+            card.className = "panel";
+
+            const text = document.createElement("div");
+            text.textContent = page.text || "";
+            card.appendChild(text);
+
+            if (page.image && (page.image.alt || page.image.prompt)) {
+              const imgMeta = document.createElement("div");
+              imgMeta.className = "helper-text";
+              imgMeta.textContent = "image.alt: " + (page.image.alt || "") + " | prompt: " + (page.image.prompt || "");
+              card.appendChild(imgMeta);
+            }
+
+            // Options
+            const optsWrap = document.createElement("div");
+            optsWrap.style.display = "grid";
+            optsWrap.style.gap = "8px";
+            for (const opt of page.options || []) {
+              const row = document.createElement("div");
+              row.style.display = "flex";
+              row.style.gap = "8px";
+              row.style.alignItems = "center";
+
+              const chip = document.createElement("span");
+              chip.className = "status-chip";
+              chip.textContent = opt.action && opt.action.type ? String(opt.action.type) : "option";
+              chip.setAttribute("data-level", "info");
+
+              const btn = document.createElement("button");
+              btn.className = "secondary";
+              btn.type = "button";
+              btn.textContent = opt.text || "(choose)";
+              btn.onclick = () => onChooseOption(opt);
+
+              row.appendChild(chip);
+              row.appendChild(btn);
+              optsWrap.appendChild(row);
+            }
+            card.appendChild(optsWrap);
+            container.appendChild(card);
+          }
+        }
+
+        byId("slRunDefineButton").addEventListener("click", async () => {
+          const base = getBase();
+          byId("slDefineResponseMeta").textContent = "Requesting definition…";
+          try {
+            const length = byId("slLength").value;
+            const density = byId("slDensity").value;
+            const description = byId("slDescription").value.trim();
+            const def = await postJson(`${base}/api/story/define`, { length, density, description });
+            slDefinition = def;
+            slPages = [];
+            renderDefinition(def);
+            renderStory();
+          } catch (e) {
+            byId("slDefineResponseMeta").textContent = "Error: " + e.message;
+          }
+        });
+
+        byId("slFirstPageButton").addEventListener("click", async () => {
+          if (!slDefinition) {
+            byId("slPageStatus").textContent = "Please generate a StoryDefinition first.";
+            byId("slPageStatus").setAttribute("data-level", "error");
+            return;
+          }
+          const base = getBase();
+          byId("slPageStatus").textContent = "Generating first page…";
+          byId("slPageStatus").setAttribute("data-level", "info");
+          try {
+            const page = await postJson(`${base}/api/story/step`, { definition: slDefinition });
+            slPages.push(page);
+            renderStory();
+          } catch (e) {
+            byId("slPageStatus").textContent = "Error: " + e.message;
+            byId("slPageStatus").setAttribute("data-level", "error");
+          }
+        });
+
+        async function onChooseOption(option) {
+          if (!slDefinition) {
+            byId("slPageStatus").textContent = "Please generate a StoryDefinition first.";
+            byId("slPageStatus").setAttribute("data-level", "error");
+            return;
+          }
+          const base = getBase();
+          byId("slPageStatus").textContent = "Generating next page…";
+          byId("slPageStatus").setAttribute("data-level", "info");
+          try {
+            const page = await postJson(`${base}/api/story/step`, {
+              definition: slDefinition,
+              previousOption: option
+            });
+            slPages.push(page);
+            renderStory();
+          } catch (e) {
+            byId("slPageStatus").textContent = "Error: " + e.message;
+            byId("slPageStatus").setAttribute("data-level", "error");
+          }
+        }
+      })();
+    </script>
     <script type="module" src="/src/test-backend.ts"></script>
   </body>
 </html>

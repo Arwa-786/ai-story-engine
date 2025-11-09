@@ -6,7 +6,7 @@
  * - length and density map to radio groups
  * - description maps to the custom textarea (or resolved concept prompt)
  */
-export type StoryLength = 'short' | 'medium' | 'long';
+export type StoryLength = 'small' | 'medium' | 'long';
 export type StoryDensity = 'short' | 'medium' | 'dense';
 
 export interface StoryConfiguration {
@@ -71,9 +71,17 @@ export interface StoryDefinition {
  * Structured, render-ready story model ("Story Step (index)")
  */
 export interface ImageObject {
+  // Remote reference if available
   url?: string;
-  alt?: string;
+  // Locally stored data URL (base64-encoded). Prefer this when present.
+  dataUrl?: string;
+  // Optional metadata about the local image
+  mimeType?: string;
+  width?: number;
+  height?: number;
+  // Provenance and prompt for generation
   prompt?: string;
+  alt?: string;
 }
 
 export interface OptionActionGoToNextPage {
@@ -111,10 +119,7 @@ export interface BackCover {
 export interface FrontCover {
   title: string;
   tagline: string;
-  image?: {
-    url?: string;
-    alt?: string;
-  };
+  image?: ImageObject;
 }
 
 export interface StoryStructure {

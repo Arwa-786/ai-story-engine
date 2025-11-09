@@ -9,6 +9,7 @@ import type { Story, StoryStructure, StoryPage, OptionObject, FrontCover, StoryD
 function readFromLocalStorage<T>(key: string): T | null {
   if (typeof window === 'undefined' || !window.localStorage) return null;
   try {
+    console.log('Reading from localStorage:', key);
     const raw = window.localStorage.getItem(key);
     if (!raw) return null;
     return JSON.parse(raw) as T;
@@ -207,7 +208,13 @@ function loadStoryMetadata(): void {
       existingMetadata?.subtitle ||
       'An AI Generated Adventure';
 
+    const imgFromStructure = story?.structure?.frontCover?.image;
+    const imgFromDefinition = story?.definition?.image;
     const computedCoverUrl =
+      imgFromStructure?.dataUrl ||
+      imgFromDefinition?.dataUrl ||
+      imgFromStructure?.url ||
+      imgFromDefinition?.url ||
       (sourceInput ? generateCoverImageUrl(sourceInput) : undefined) ||
       coverImageElement?.getAttribute('src') ||
       existingMetadata?.coverImageUrl;
@@ -444,7 +451,8 @@ function buildCoverElement(frontCover?: FrontCover): HTMLElement {
   img.id = 'coverImage';
   img.alt = frontCover?.title ? `${frontCover.title} - Cover Image` : 'Story Cover';
   img.loading = 'eager';
-  if (frontCover?.image?.url) img.src = frontCover.image.url;
+  const src = frontCover?.image?.dataUrl || frontCover?.image?.url;
+  if (src) img.src = src;
 
   const content = createElement('div', 'cover-content');
   const title = createElement('h1', 'book-title');
@@ -488,11 +496,18 @@ function renderOptionButton(option: OptionObject, isLast: boolean = false): HTML
   return btn;
 }
 
-function buildBranchConversation(branchOptions: OptionObject[], isFinal: boolean): HTMLElement {
+function buildBranchConversation(branchOptions: OptionObject[], isFinal: boolean, branchText?: string): HTMLElement {
   const response = createElement('div', 'conversation-response hidden');
   const divider = createElement('div', 'response-divider');
   response.appendChild(divider);
-  // Optional: a small prompt area could go here
+  // Optional prompt/content above branch options
+  const prompt = createElement('div', 'conversation-text') as HTMLElement;
+  if (branchText && typeof branchText === 'string') {
+    prompt.textContent = branchText;
+  } else {
+    prompt.textContent = '';
+  }
+  response.appendChild(prompt);
   const optionsWrap = createElement('div', 'story-options');
   branchOptions.forEach(o => {
     optionsWrap.appendChild(renderOptionButton(o, isFinal));
@@ -520,11 +535,12 @@ function buildStoryPageElement(pageData: StoryPage, isFinal: boolean): HTMLEleme
   storyContent.appendChild(createParagraphs(pageData.text));
 
   // Image
-  if (pageData.image?.url) {
+  const resolvedSrc = pageData.image?.dataUrl || pageData.image?.url;
+  if (resolvedSrc) {
     const imageWrap = createElement('div', 'story-image');
     const img = document.createElement('img');
-    img.src = pageData.image.url;
-    img.alt = pageData.image.alt || 'Story scene';
+    img.src = resolvedSrc;
+    img.alt = pageData.image?.alt || 'Story scene';
     imageWrap.appendChild(img);
     storyContent.appendChild(imageWrap);
   }
@@ -543,7 +559,7 @@ function buildStoryPageElement(pageData: StoryPage, isFinal: boolean): HTMLEleme
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const branch = firstBranch?.action as any;
       if (branch?.options && Array.isArray(branch.options) && branch.options.length > 0) {
-        const conv = buildBranchConversation(branch.options as OptionObject[], isFinal);
+        const conv = buildBranchConversation(branch.options as OptionObject[], isFinal, (branch as { text?: string }).text);
         storyContent.appendChild(conv);
       }
     }
@@ -622,10 +638,12 @@ function buildStoryPageElement(pageData: StoryPage, isFinal: boolean): HTMLEleme
 function buildDefaultStructure(): StoryStructure {
   let title = store.getState().story?.definition?.title?.trim() || 'An Untitled Story';
   let tagline = store.getState().story?.definition?.tagline?.trim() || 'An AI Generated Adventure';
+  const defImage = store.getState().story?.definition?.image;
   return {
     frontCover: {
       title,
       tagline,
+      image: defImage,
     },
     pages: [
       {
@@ -697,9 +715,16 @@ function initializeStoryPage(): void {
   // Attach initial handlers for options
   attachOptionHandlers();
   // If no pages yet but we have a definition, attempt to fetch the opening page here
-  maybeFetchOpeningPageIfMissing().catch(err => {
-    console.warn('Opening page generation failed on story page:', err);
-  });
+  maybeFetchOpeningPageIfMissing()
+    .catch(err => {
+      console.warn('Opening page generation failed on story page:', err);
+    })
+    .finally(() => {
+      // After attempting opening scene, generate cover art if missing
+      maybeGenerateCoverImageIfMissing().catch(err => {
+        console.warn('Cover image generation failed:', err);
+      });
+    });
   // Handle cover page click
   const coverPage = document.getElementById('coverPage');
   if (coverPage) {
@@ -762,9 +787,7 @@ async function maybeFetchOpeningPageIfMissing(): Promise<void> {
     const frontCover: FrontCover = {
       title: current!.definition!.title,
       tagline: current!.definition!.tagline,
-      image: current!.definition!.image
-        ? { alt: current!.definition!.image.alt }
-        : undefined,
+      image: current!.definition!.image,
     };
     const existingPages = current!.structure?.pages ?? [];
     store.updateStory({
@@ -785,10 +808,11 @@ async function maybeFetchOpeningPageIfMissing(): Promise<void> {
 }
 
 async function fetchFirstStoryPage(definition: StoryDefinition): Promise<StoryPage> {
+  const cfg = store.getState().story?.configuration;
   const response = await fetch('/api/story/step', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ definition }),
+    body: JSON.stringify({ definition, stepIndex: 0, configuration: cfg }),
   });
   if (!response.ok) {
     throw new Error(`Story page request failed (${response.status})`);
@@ -797,37 +821,151 @@ async function fetchFirstStoryPage(definition: StoryDefinition): Promise<StoryPa
   return data;
 }
 
+/**
+ * Build a descriptive cover art prompt from the StoryDefinition if one isn't provided.
+ */
+function buildCoverPromptFromDefinition(definition: StoryDefinition): string {
+  const title = definition.title?.trim();
+  const genre = definition.genre?.trim();
+  const theme = definition.theme?.trim();
+  const location = definition.location?.trim();
+  const period = definition.timePeriod?.trim();
+  const tagline = definition.tagline?.trim();
+  const world = definition.worldDescription?.trim();
+  const protagonist = definition.protagonist?.name?.trim();
+  const antagonist = definition.antagonist?.name?.trim();
+  const base = [
+    title ? `Book cover for "${title}"` : 'Book cover',
+    genre ? `genre: ${genre}` : '',
+    theme ? `theme: ${theme}` : '',
+    location ? `setting: ${location}` : '',
+    period ? `time period: ${period}` : '',
+    protagonist ? `featuring protagonist ${protagonist}` : '',
+    antagonist ? `and antagonist ${antagonist}` : '',
+  ]
+    .filter(Boolean)
+    .join(', ');
+  const mood = tagline ? `, mood: ${tagline}` : '';
+  const worldHint = world ? `, world: ${world}` : '';
+  // Guidance for composition. Final size is controlled by CSS; provide aspect hints.
+  const composition =
+    ', cinematic, detailed, high contrast, sharp focus, rich lighting, vertical 3:4, cover art';
+  return `${base}${mood}${worldHint}${composition}`;
+}
+
+/**
+ * Generate a cover image using the backend image agent if none is present.
+ * Shows a loading overlay: "Generating cover art..."
+ */
+async function maybeGenerateCoverImageIfMissing(): Promise<void> {
+  const current = store.getState().story;
+  const definition = current?.definition;
+  if (!definition) return;
+  const existing =
+    current?.structure?.frontCover?.image?.dataUrl ||
+    current?.structure?.frontCover?.image?.url;
+  if (existing) return;
+  const prompt =
+    definition.image?.prompt?.trim() ||
+    buildCoverPromptFromDefinition(definition);
+  if (!prompt || prompt.length === 0) return;
+
+  const overlay = createInlineLoadingOverlay('Generating cover art...');
+  try {
+    const resp = await fetch('/api/story/cover-image', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt }),
+    });
+    if (!resp.ok) {
+      throw new Error(`Cover image request failed (${resp.status})`);
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data: any = await resp.json();
+    const mimeType: string = typeof data?.mimeType === 'string' && data.mimeType ? data.mimeType : 'image/png';
+    const base64: string | undefined = data?.imageBase64;
+    if (!base64 || typeof base64 !== 'string' || base64.length === 0) {
+      throw new Error('Invalid image data returned');
+    }
+    const dataUrl = `data:${mimeType};base64,${base64}`;
+
+    // Persist in store
+    const structure = current?.structure || buildDefaultStructure();
+    const newFrontCover: FrontCover = {
+      ...structure.frontCover,
+      image: {
+        ...(structure.frontCover.image || {}),
+        dataUrl,
+        mimeType,
+        prompt,
+        alt: definition.title ? `${definition.title} - Cover Image` : 'Story Cover',
+      },
+    };
+    store.updateStory({
+      structure: ({ ...structure, frontCover: newFrontCover } as unknown as StoryStructure),
+    });
+
+    // Update DOM immediately without full rebuild
+    const coverImage = document.getElementById('coverImage') as HTMLImageElement | null;
+    if (coverImage) {
+      coverImage.src = dataUrl;
+      coverImage.alt = newFrontCover.image?.alt || coverImage.alt;
+    }
+    // Refresh metadata so the UI footer shows correct publish date etc
+    loadStoryMetadata();
+  } catch (err) {
+    setOverlayError(overlay, 'Failed to generate cover art.');
+    await delay(900);
+    throw err;
+  } finally {
+    removeInlineLoadingOverlay(overlay);
+  }
+}
+
 function createInlineLoadingOverlay(message: string): HTMLElement {
+  // Remove any existing overlay to avoid duplicates
+  const existing = document.getElementById('story-opening-overlay');
+  if (existing && existing.parentElement) {
+    existing.parentElement.removeChild(existing);
+  }
   const overlay = document.createElement('div');
   overlay.id = 'story-opening-overlay';
   overlay.style.position = 'fixed';
   overlay.style.inset = '0';
-  overlay.style.background = 'rgba(15, 14, 12, 0.6)';
+  overlay.style.background = 'rgba(15, 14, 12, 0.78)';
   overlay.style.display = 'flex';
   overlay.style.alignItems = 'center';
   overlay.style.justifyContent = 'center';
-  overlay.style.zIndex = '9999';
+  overlay.style.zIndex = '2147483000';
+  overlay.style.pointerEvents = 'auto';
+  // Lock page scroll while overlay is present
+  overlay.dataset.prevHtmlOverflow = document.documentElement.style.overflow || '';
+  overlay.dataset.prevBodyOverflow = document.body.style.overflow || '';
+  document.documentElement.style.overflow = 'hidden';
+  document.body.style.overflow = 'hidden';
 
   const panel = document.createElement('div');
-  panel.style.background = '#fff';
-  panel.style.borderRadius = '12px';
-  panel.style.boxShadow = '0 10px 30px rgba(0,0,0,0.2)';
-  panel.style.padding = '18px 22px';
-  panel.style.minWidth = '240px';
-  panel.style.maxWidth = '340px';
+  // Fullscreen content container centered
+  panel.style.background = 'transparent';
+  panel.style.width = '100%';
+  panel.style.height = '100%';
+  panel.style.padding = '0';
   panel.style.display = 'flex';
   panel.style.flexDirection = 'column';
   panel.style.alignItems = 'center';
-  panel.style.gap = '10px';
+  panel.style.justifyContent = 'center';
+  panel.style.gap = '16px';
 
   const barWrap = document.createElement('div');
-  barWrap.style.width = '100%';
-  barWrap.style.height = '8px';
-  barWrap.style.background = '#f3f4f6';
+  barWrap.id = 'inline-loading-bar';
+  barWrap.style.width = 'min(720px, 80vw)';
+  barWrap.style.height = '14px';
+  barWrap.style.background = 'rgba(243, 244, 246, 0.9)';
   barWrap.style.borderRadius = '999px';
   barWrap.style.overflow = 'hidden';
   const barFill = document.createElement('div');
-  barFill.style.width = '24%';
+  barFill.id = 'inline-loading-bar-fill';
+  barFill.style.width = '20%';
   barFill.style.height = '100%';
   barFill.style.background = '#111827';
   barFill.style.transition = 'width 260ms ease';
@@ -835,10 +973,12 @@ function createInlineLoadingOverlay(message: string): HTMLElement {
   barWrap.appendChild(barFill);
 
   const text = document.createElement('div');
+  text.id = 'inline-loading-message';
   text.textContent = message;
-  text.style.fontSize = '13px';
-  text.style.fontWeight = '600';
-  text.style.color = '#111827';
+  text.style.fontSize = '18px';
+  text.style.fontWeight = '700';
+  text.style.letterSpacing = '0.2px';
+  text.style.color = 'rgba(255,255,255,0.95)';
   text.style.textAlign = 'center';
 
   panel.appendChild(barWrap);
@@ -860,9 +1000,35 @@ function removeInlineLoadingOverlay(overlay: HTMLElement | null): void {
   if (idRaw) {
     window.clearInterval(Number(idRaw));
   }
+  // Restore page scroll state
+  const prevHtmlOverflow = overlay.dataset.prevHtmlOverflow ?? '';
+  const prevBodyOverflow = overlay.dataset.prevBodyOverflow ?? '';
+  document.documentElement.style.overflow = prevHtmlOverflow;
+  document.body.style.overflow = prevBodyOverflow;
   if (overlay.parentElement) {
     overlay.parentElement.removeChild(overlay);
   }
+}
+
+/**
+ * Loading overlay helpers
+ */
+function setOverlayMessage(overlay: HTMLElement, message: string): void {
+  const msgEl = overlay.querySelector('#inline-loading-message') as HTMLElement | null;
+  if (msgEl) msgEl.textContent = message;
+}
+
+function setOverlayError(overlay: HTMLElement, message: string): void {
+  setOverlayMessage(overlay, message);
+  const barFill = overlay.querySelector('#inline-loading-bar-fill') as HTMLElement | null;
+  if (barFill) {
+    barFill.style.background = '#b91c1c'; // red-700
+    barFill.style.width = '100%';
+  }
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 /**
@@ -951,6 +1117,7 @@ function flipToBackCover(): void {
 
 // Flip to next page
 function flipToNextPage(): void {
+  console.log('Flipping to next page');
   const pagesNow = getPages();
   if (currentPageIndex >= pagesNow.length - 1) {
     return;
@@ -980,6 +1147,91 @@ function flipToNextPage(): void {
 }
 
 /**
+ * Generate the next story page for a selected option, append it, then flip
+ */
+async function generateNextPageAndFlip(selectedOptionId: string, inlineOverlay?: HTMLElement): Promise<void> {
+  console.log('Generating next page and flipping');
+  const story = store.getState().story;
+  const definition = story?.definition;
+  const structure = story?.structure;
+  if (!definition || !structure) {
+    console.log('No definition or structure found, flipping to next page');
+    flipToNextPage();
+    return;
+  }
+  const currentPages = structure.pages || [];
+  // Map DOM page index (includes cover at 0) to data page index (first story page at 0)
+  const dataPageIndex = Math.max(0, Math.min(currentPages.length - 1, currentPageIndex - 1));
+  console.log('Index mapping', { domIndex: currentPageIndex, dataIndex: dataPageIndex, totalDataPages: currentPages.length });
+  const currentPage = currentPages[dataPageIndex];
+  if (!currentPage) {
+    console.log('No current page found, flipping to next page');
+    flipToNextPage();
+    return;
+  }
+  // Resolve selected option from top-level or nested branch options
+  let selectedOption = currentPage.options.find(o => o.id === selectedOptionId);
+  if (!selectedOption) {
+    for (const opt of currentPage.options) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const act: any = opt.action;
+      if (act?.type === 'branch' && Array.isArray(act.options)) {
+        const nested = act.options.find((o: OptionObject) => o.id === selectedOptionId);
+        if (nested) {
+          selectedOption = nested;
+          break;
+        }
+      }
+    }
+  }
+  if (!selectedOption) {
+    console.log('No selected option found in current page or branch options');
+    throw new Error('Selected option not found on current page');
+  }
+
+  const overlay = inlineOverlay || createInlineLoadingOverlay('Generating next page...');
+  const nextIndex = currentPages.length; // next page is appended
+  const nextPage = await fetchNextStoryPage(definition, selectedOption, nextIndex);
+  // Persist to store
+  const updatedPages = currentPages.concat(nextPage);
+  store.updateStory({
+    structure: {
+      frontCover: structure.frontCover,
+      pages: updatedPages,
+    } as StoryStructure,
+  });
+  // Append to DOM and prepare for flip
+  if (!bookContainer) {
+    bookContainer = document.querySelector<HTMLElement>('.book-container');
+  }
+  if (bookContainer) {
+    const el = buildStoryPageElement(nextPage, false);
+    bookContainer.appendChild(el);
+    // Attach handlers on newly added buttons
+    attachOptionHandlers(el);
+  }
+  // Flip only after success
+  flipToNextPage();
+}
+
+/**
+ * Fetch next story page (step) using the selected option as previousOption
+ */
+async function fetchNextStoryPage(definition: StoryDefinition, previousOption: OptionObject, stepIndex?: number): Promise<StoryPage> {
+  const cfg = store.getState().story?.configuration;
+  const response = await fetch('/api/story/step', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ definition, previousOption, stepIndex, configuration: cfg }),
+  });
+  if (!response.ok) {
+    throw new Error(`Story page request failed (${response.status})`);
+  }
+  const data = (await response.json()) as StoryPage;
+  return data;
+}
+
+/**
  * Determine page type based on data attributes and options
  */
 function getPageType(pageElement: HTMLElement): string {
@@ -1006,8 +1258,21 @@ function getPageType(pageElement: HTMLElement): string {
 /**
  * Handle story option clicks with page type awareness
  */
-function handleOptionClick(event: Event): void {
-  const button = event.currentTarget as HTMLButtonElement;
+async function handleOptionClick(event: Event): Promise<void> {
+  // Ensure we don't double-handle the same click
+  if (event.defaultPrevented) return;
+  event.preventDefault();
+  if (typeof (event as any).stopImmediatePropagation === 'function') {
+    (event as any).stopImmediatePropagation();
+  }
+  event.stopPropagation();
+  // Support both direct handlers and delegated (document-level) handlers
+  let button = event.currentTarget as HTMLButtonElement | null;
+  if (!button || !(button instanceof HTMLButtonElement) || !button.classList.contains('story-option')) {
+    const maybeBtn = (event.target as HTMLElement | null)?.closest('.story-option') as HTMLButtonElement | null;
+    if (!maybeBtn) return;
+    button = maybeBtn;
+  }
   const optionsContainer = button.parentElement;
   
   if (!optionsContainer) return;
@@ -1018,6 +1283,21 @@ function handleOptionClick(event: Event): void {
   // Get page type for appropriate handling
   const pageElement = button.closest('.page') as HTMLElement;
   const pageType = getPageType(pageElement);
+
+  // Debug: log option click details
+  try {
+    const optionText = (button.querySelector('.option-text') as HTMLElement | null)?.textContent
+      ?? button.textContent?.trim()
+      ?? '';
+    console.log('[Story] Option clicked', {
+      optionId: button.dataset.option,
+      optionText,
+      pageType,
+      currentPageIndex,
+    });
+  } catch {
+    // no-op for logging errors
+  }
 
   // Disable all options immediately to prevent multiple clicks
   optionsContainer.querySelectorAll('.story-option').forEach(btn => {
@@ -1057,6 +1337,24 @@ function handleOptionClick(event: Event): void {
         }
       });
     }, 400); // Match fadeOutOption animation duration
+    // If this is the top-level branch option, inject its branch text into the conversation response
+    try {
+      const current = store.getState().story;
+      const pages = current?.structure?.pages ?? [];
+      const dataPageIndex = Math.max(0, Math.min(pages.length - 1, currentPageIndex - 1));
+      const pageData = pages[dataPageIndex];
+      const topOptionId = button.dataset.option || '';
+      const topOption = pageData?.options?.find(o => o.id === topOptionId);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const action: any = topOption?.action;
+      const branchText: string | undefined = action?.type === 'branch' ? action?.text : undefined;
+      const textEl = (pageElement || document).querySelector('.conversation-response .conversation-text') as HTMLElement | null;
+      if (textEl && typeof branchText === 'string' && branchText.trim().length > 0) {
+        textEl.textContent = branchText;
+      }
+    } catch {
+      // ignore
+    }
   } else {
     // Non-conversation page - just disable non-selected options
     optionsContainer.querySelectorAll('.story-option').forEach(btn => {
@@ -1089,22 +1387,25 @@ function handleOptionClick(event: Event): void {
       });
     }, 500);
   } else {
-    // No more conversation responses - auto-flip to next page or back cover
-    let delay = 600; // Default for multiple options
-    
-    if (pageType === 'single-option') {
-      delay = 400; // Faster for single option (feels more natural)
-    } else if (isLastOption) {
-      delay = 1000; // Longer for dramatic ending
-    }
-    
-    // Check if this is the final page with back cover content
-    const hasFinalPageBackCover = pageElement?.dataset.isFinal === 'true';
-    
-    if (isLastOption && hasFinalPageBackCover) {
-      setTimeout(flipToBackCover, delay);
-    } else {
-      setTimeout(flipToNextPage, delay);
+    // Non-conversation page: generate the next page from the selected option, then flip
+    const selectedOptionId = button.dataset.option || '';
+    console.log('[Story] Showing loader for next page');
+    const overlay = createInlineLoadingOverlay('Generating next page...');
+    try {
+      await generateNextPageAndFlip(selectedOptionId, overlay);
+    } catch (err) {
+      console.error('[Story] Next page generation failed', err);
+      setOverlayError(overlay, 'Failed to generate next page. Please try again.');
+      // Re-enable options so user can retry
+      optionsContainer.querySelectorAll('.story-option').forEach(btn => {
+        (btn as HTMLButtonElement).disabled = false;
+        (btn as HTMLElement).classList.remove('disabled', 'fade-out', 'hidden');
+      });
+      button.classList.remove('selected');
+      // Briefly show the error state
+      await delay(900);
+    } finally {
+      removeInlineLoadingOverlay(overlay);
     }
   }
 }

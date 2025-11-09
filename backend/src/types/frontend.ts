@@ -2,7 +2,7 @@
  * Backend-side mirror of selected frontend types needed for generation.
  * These should match the shapes in `frontend/src/types.ts` lines 1-66.
  */
-export type StoryLength = 'short' | 'medium' | 'long';
+export type StoryLength = 'small' | 'medium' | 'long';
 export type StoryDensity = 'short' | 'medium' | 'dense';
 
 export interface StoryConfiguration {

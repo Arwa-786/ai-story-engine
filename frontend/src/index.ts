@@ -127,10 +127,11 @@ async function fetchStoryDefinition(configuration: StoryConfiguration): Promise<
 }
 
 async function fetchFirstStoryPage(definition: StoryDefinition): Promise<StoryPage> {
+  const cfg = store.getState().story?.configuration;
   const response = await fetch('/api/story/step', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ definition }),
+    body: JSON.stringify({ definition, stepIndex: 0, configuration: cfg }),
   });
   if (!response.ok) {
     throw new Error(`Story page request failed (${response.status})`);

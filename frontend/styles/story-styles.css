@@ -517,6 +517,22 @@ body {
     background: rgba(139, 69, 19, 0.3);
 }
 
+/* Page Running Header (book title) */
+.page-header {
+    position: absolute;
+    top: 14px;
+    left: 0;
+    right: 0;
+    text-align: center;
+    font-family: Georgia, 'Times New Roman', serif;
+    font-size: 0.85rem;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: rgba(74, 53, 32, 0.6);
+    pointer-events: none;
+    user-select: none;
+}
+
 /* Story Content */
 .story-content {
     flex: 1;
@@ -650,6 +666,18 @@ body {
 .conversation-response {
     margin-top: 20px;
     animation: fadeIn 0.5s ease-in;
+}
+
+.conversation-response .conversation-text {
+    color: #2c3e50;
+    font-size: 1rem;
+    line-height: 1.7;
+    margin-top: 6px;
+    margin-bottom: 14px; /* padding below the text and above options */
+}
+
+.conversation-response .story-options {
+    margin-top: 0; /* override global auto to keep options near the branch text */
 }
 
 .conversation-response.hidden {

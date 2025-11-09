@@ -1,6 +1,6 @@
-# AI Story Engine
+# Story Untold
 
-Interactive AI-powered story engine built with TypeScript and Vite. Create beautiful, branching narratives with dynamic page flips, multiple page types, and AI-generated content.
+Interactive AI-powered story maker built with TypeScript and Vite. Create beautiful, branching narratives with dynamic page flips, multiple page types, and AI-generated content.
 
 ## 🚀 Quick Start
 
@@ -32,7 +32,7 @@ Output in `dist/` folder.
 ## 📁 Project Structure
 
 ```
-ai-story-engine/
+story-untold/
 ├── src/
 │   ├── types/
 │   ├── types.ts              # Core type definitions
@@ -107,4 +107,4 @@ MIT
 ---
 
 **Built by Team A from SharkByte**  
-*Powered by AI Story Engine*
+*Powered by Story Untold*

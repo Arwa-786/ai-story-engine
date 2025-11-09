@@ -1,7 +1,7 @@
 {
-  "name": "ai-story-engine",
+  "name": "story-untold",
   "version": "1.0.0",
-  "description": "Interactive AI-powered story engine with TypeScript and Vite",
+  "description": "Story Untold - Interactive AI-powered story maker with TypeScript and Vite",
   "type": "module",
   "scripts": {
     "dev": "vite",

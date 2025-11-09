@@ -9,8 +9,10 @@ body {
     background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
     min-height: 100vh;
     display: flex;
+    flex-direction: column; /* Stack book and controls vertically */
     align-items: center;
     justify-content: center;
+    gap: 12px; /* spacing between book and controls */
     padding: 20px;
     overflow: hidden;
 }
@@ -1174,31 +1176,32 @@ body {
 
 /* Book Controls */
 .book-controls {
-    position: fixed;
-    bottom: 30px;
-    left: 50%;
-    transform: translateX(-50%) translateY(10px);
+    position: relative; /* Sit in normal flow under the book */
+    width: 900px;
+    max-width: calc(100vw - 40px);
     display: flex;
-    gap: 15px;
-    z-index: 100;
+    align-items: stretch;
+    justify-content: center;
+    gap: 12px;
+    z-index: 10;
     opacity: 0;
     visibility: hidden;
-    transition: opacity 0.5s ease, visibility 0.5s ease, transform 0.5s ease;
+    transition: opacity 0.35s ease, visibility 0.35s ease;
+    margin-top: 6px; /* slight separation from the book */
 }
 
 .book-controls.visible {
     opacity: 1;
     visibility: visible;
-    transform: translateX(-50%) translateY(0);
 }
 
 .control-button {
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 12px 24px;
+    padding: 8px 22px; /* reduced height (about half of previous visual size) */
     font-family: 'Georgia', 'Times New Roman', serif;
-    font-size: 1rem;
+    font-size: 0.95rem;
     font-weight: 600;
     border: 2px solid;
     border-radius: 8px;
@@ -1206,6 +1209,8 @@ body {
     transition: all 0.3s ease;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
     backdrop-filter: blur(10px);
+    flex: 1 1 0; /* make buttons grow to fill one line evenly */
+    justify-content: center; /* center icon + text */
 }
 
 .control-button:hover {
@@ -1247,8 +1252,8 @@ body {
 }
 
 .control-icon {
-    width: 20px;
-    height: 20px;
+    width: 18px; /* slightly smaller for reduced height */
+    height: 18px;
     stroke: currentColor;
 }
 
@@ -1313,13 +1318,13 @@ body {
 /* Responsive controls */
 @media (max-width: 768px) {
     .book-controls {
-        bottom: 20px;
-        flex-direction: column;
+        width: calc(100vw - 40px);
+        max-width: 700px;
         gap: 10px;
     }
     
     .control-button {
-        padding: 10px 20px;
+        padding: 8px 18px;
         font-size: 0.9rem;
     }
     
@@ -1331,15 +1336,13 @@ body {
 
 @media (max-width: 480px) {
     .book-controls {
-        bottom: 15px;
-        width: calc(100% - 40px);
-        max-width: 300px;
+        width: calc(100vw - 32px);
+        max-width: 420px;
+        gap: 8px;
     }
     
     .control-button {
-        width: 100%;
-        justify-content: center;
-        padding: 10px 16px;
+        padding: 8px 14px;
         font-size: 0.85rem;
     }
 }

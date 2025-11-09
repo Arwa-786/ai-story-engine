@@ -200,6 +200,12 @@ createStoryBtn.addEventListener('click', async () => {
     createdAt: nowIso,
     updatedAt: nowIso,
     configuration: config,
+    metadata: {
+      telemetry: {
+        optionSelections: [],
+        storyline: [],
+      },
+    },
   };
 
   // Persist current story through global store

@@ -157,6 +157,14 @@ export interface StoryStructure {
   backCover: BackCover;
 }
 
+/**
+ * LLM-produced back cover summary with an optional image descriptor.
+ */
+export interface BackCoverSummary {
+  summary: string;
+  image?: ImageObject;
+}
+
 export type StoryStatus = 'pending' | 'generating' | 'ready' | 'error';
 
 /**

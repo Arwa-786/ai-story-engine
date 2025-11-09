@@ -20,12 +20,18 @@ app.use(
 );
 app.use(express.json({ limit: "2mb" }));
 
-// Image agent route (Gemini direct)
-const geminiKey = process.env.GEMINI_API_KEY?.trim();
-if (geminiKey) {
-  const imageRouter = createImageRouter();
-  app.use("/api/agents/image", imageRouter);
-}
+// Image agent route (Gemini direct) — always mount to avoid 404s in playground
+const imageRouter = createImageRouter();
+app.use("/api/agents/image", imageRouter);
+// Health endpoint for image agent configuration
+app.get("/api/agents/image/health", (_req: Request, res: Response) => {
+  const hasApiKey = Boolean(process.env.GEMINI_API_KEY?.trim());
+  return res.status(200).json({
+    health: hasApiKey ? "ok" : "misconfigured",
+    hasApiKey,
+    route: { method: "POST", path: "/api/agents/image/generate" },
+  });
+});
 
 // Audio agent route
 const elevenLabsToken = process.env.ELEVENLABS_TOKEN?.trim();
@@ -209,6 +215,7 @@ app.post(
         const nodeStream = Readable.fromWeb(speechResponse.body as any);
         // Pipe the audio stream directly to the client
         nodeStream.pipe(res);
+        return;
       } else {
         return res.status(500).json({ error: "Empty audio response from API." });
       }
@@ -221,6 +228,7 @@ app.post(
         return res.status(502).json({ error: message });
       }
     }
+    return;
   },
 );
 

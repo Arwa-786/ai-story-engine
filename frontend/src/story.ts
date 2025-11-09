@@ -1,7 +1,7 @@
 /**
  * Story Display Page
  */
-import type { Story, StoryStructure, StoryPage, OptionObject, FrontCover, StoryDefinition } from './types';
+import type { Story, StoryStructure, StoryPage, OptionObject, FrontCover, StoryDefinition, StoryTelemetry, OptionSelectionEvent, StoryMetadata } from './types';
 
 /**
  * Lightweight localStorage helpers kept internal to story page + store.
@@ -190,6 +190,49 @@ function prefillImageCacheFromStore(): void {
 let currentPageIndex = 0;
 let storyStartTime: number = Date.now();
 let bookContainer: HTMLElement | null = null;
+
+/**
+ * Telemetry helpers
+ */
+function getDefaultTelemetry(): StoryTelemetry {
+  return { optionSelections: [], storyline: [] };
+}
+
+function getCurrentTelemetry(): StoryTelemetry {
+  const s = store.getState().story;
+  return (s?.metadata?.telemetry) ?? getDefaultTelemetry();
+}
+
+function updateTelemetry(updater: (t: StoryTelemetry) => void): void {
+  const currentStory = store.getState().story;
+  if (!currentStory) return;
+  const telemetry = { ...getCurrentTelemetry() };
+  updater(telemetry);
+  const nextMetadata: StoryMetadata = {
+    ...(currentStory.metadata ?? { telemetry: getDefaultTelemetry() }),
+    telemetry,
+  };
+  store.updateStory({ metadata: nextMetadata });
+}
+
+function trackOptionSelection(event: Omit<OptionSelectionEvent, 'timestamp'>): void {
+  updateTelemetry(t => {
+    t.optionSelections = t.optionSelections.concat({
+      ...event,
+      timestamp: new Date().toISOString(),
+    });
+  });
+}
+
+function trackStorylineEvent(type: StoryTelemetry['storyline'][number]['type'], details?: Omit<StoryTelemetry['storyline'][number], 'timestamp' | 'type'>): void {
+  updateTelemetry(t => {
+    t.storyline = t.storyline.concat({
+      type,
+      timestamp: new Date().toISOString(),
+      ...(details ?? {}),
+    });
+  });
+}
 
 /**
  * Cover speech playback state
@@ -665,7 +708,29 @@ async function setupBackCover(): Promise<void> {
       // Ensure back cover summary exists (LLM-generated)
       await maybeGenerateBackCoverSummaryIfMissing();
       // Ensure back cover art exists (AI-generated)
-      await maybeGenerateBackCoverImageIfMissing();
+      // Show a dedicated loading screen once the summary is done, only if image is still missing
+      {
+        const afterSummary = store.getState().story;
+        const hasBackImage =
+          Boolean(afterSummary?.structure?.backCover?.image?.dataUrl) ||
+          Boolean(afterSummary?.structure?.backCover?.image?.url);
+        if (!hasBackImage) {
+          // Replace any existing overlay with a new "Generating cover art..." screen
+          const existingOverlay = document.getElementById('story-opening-overlay') as HTMLElement | null;
+          if (existingOverlay) {
+            try { removeInlineLoadingOverlay(existingOverlay); } catch { /* ignore */ }
+          }
+          const artOverlay = createInlineLoadingOverlay('Generating cover art...');
+          try {
+            await maybeGenerateBackCoverImageIfMissing();
+          } finally {
+            removeInlineLoadingOverlay(artOverlay);
+          }
+        } else {
+          // If image already present, just proceed without additional overlay
+          await maybeGenerateBackCoverImageIfMissing();
+        }
+      }
       const backCoverImage = document.getElementById('backCoverImage') as HTMLImageElement;
       const current = store.getState().story;
       const backSrc =
@@ -675,11 +740,15 @@ async function setupBackCover(): Promise<void> {
         backCoverImage.src = backSrc;
       }
       
-      // Set summary
+      // Set summary (prefer freshly generated BackCoverSummary from store)
       const summaryText = document.getElementById('storySummary');
       if (summaryText) {
-        const structuredSummary = story?.structure?.backCover?.summary;
-        summaryText.textContent = structuredSummary || generateStorySummary(input);
+        const refreshed = store.getState().story;
+        const structuredSummary = refreshed?.structure?.backCover?.summary;
+        summaryText.textContent =
+          (typeof structuredSummary === 'string' && structuredSummary.trim().length > 0)
+            ? structuredSummary
+            : generateStorySummary(input);
       }
 
       // Set back cover book title
@@ -991,7 +1060,7 @@ function buildStoryPageElement(pageData: StoryPage, isFinal: boolean): HTMLEleme
     const publisherLabel = createElement('div', 'metadata-label');
     publisherLabel.textContent = 'Publisher';
     const publisherValue = createElement('div', 'metadata-value');
-    publisherValue.textContent = 'AI Story Engine';
+    publisherValue.textContent = 'Story Untold';
     publisherSection.appendChild(publisherLabel);
     publisherSection.appendChild(publisherValue);
 
@@ -1151,6 +1220,11 @@ function initializeStoryPage(): void {
   if (exportButton) {
     exportButton.addEventListener('click', exportToPDF);
   }
+  // New Story button
+  const newStoryButton = document.getElementById('newStoryButton');
+  if (newStoryButton) {
+    newStoryButton.addEventListener('click', startNewStory);
+  }
 }
 
 function isStoryPage(): boolean {
@@ -1263,7 +1337,7 @@ function buildBackCoverPromptFromDefinition(definition: StoryDefinition): string
     .filter(Boolean)
     .join(', ');
   const perspective = ', complementary to front cover, alternate angle, subtle, no text';
-  const composition = ', cinematic, detailed, rich lighting, horizontal 3:2, dust jacket back art';
+  const composition = ', cinematic, detailed, high contrast, sharp focus, rich lighting, vertical 3:4, back cover art';
   return `${base}${perspective}${(world ? `, world: ${world}` : '')}${composition}`;
 }
 
@@ -1350,7 +1424,16 @@ async function maybeGenerateBackCoverImageIfMissing(): Promise<void> {
     current?.structure?.backCover?.image?.dataUrl ||
     current?.structure?.backCover?.image?.url;
   if (existing) return;
-  const basePrompt = definition.image?.prompt?.trim() || buildBackCoverPromptFromDefinition(definition);
+  // Prefer prompt produced by the back cover summary result if present
+  const summaryPrompt =
+    current?.structure?.backCover?.image?.prompt &&
+    typeof current.structure.backCover.image.prompt === 'string'
+      ? current.structure.backCover.image.prompt.trim()
+      : '';
+  const basePrompt =
+    (summaryPrompt && summaryPrompt.length > 0
+      ? summaryPrompt
+      : (definition.image?.prompt?.trim() || buildBackCoverPromptFromDefinition(definition)));
   if (!basePrompt || basePrompt.length === 0) return;
   try {
     const resp = await fetch('/api/story/cover-image', {
@@ -1772,16 +1855,7 @@ async function warmupImagesOnCover(): Promise<void> {
     if (structure.pages && structure.pages.length > 0) {
       await maybeGeneratePageImageIfMissing(0);
     }
-    // Preload/generate back cover image
-    // Show a lightweight overlay while preparing the final back cover in the background
-    const overlay = createInlineLoadingOverlay('Preparing back cover...');
-    try {
-      await maybeGenerateBackCoverSummaryIfMissing();
-      setOverlayMessage(overlay, 'Preparing back cover art...');
-      await maybeGenerateBackCoverImageIfMissing();
-    } finally {
-      removeInlineLoadingOverlay(overlay);
-    }
+    // Defer any back cover generation until the final page is reached
   } catch {
     // best-effort; ignore
   }
@@ -1929,6 +2003,8 @@ async function flipToBackCover(): Promise<void> {
   } else {
     currentPage.style.setProperty('--back-cover-image-url', `url("${backCoverImageUrl}")`);
   }
+  // Ensure a loading overlay on the back cover art while it finishes loading
+  try { attachBackCoverImageProgress(); } catch { /* ignore */ }
   
   // Remove active state - no next page will appear
   currentPage.classList.remove('active');
@@ -2019,6 +2095,15 @@ function flipToNextPage(): void {
     void startPageNarrationForDomIndex(nextDomIndex);
     
     currentPageIndex++;
+    // Telemetry: track page flip to data page index
+    try {
+      const dataIndex = mapDomToDataIndex(currentPageIndex);
+      const storyNow = store.getState().story;
+      const pageId = storyNow?.structure?.pages?.[dataIndex]?.id;
+      trackStorylineEvent('pageFlip', { pageIndex: dataIndex, pageId });
+    } catch {
+      // ignore telemetry failure
+    }
   }, 1200); // Match animation duration
 }
 
@@ -2065,6 +2150,21 @@ async function generateNextPageAndFlip(selectedOptionId: string, inlineOverlay?:
     throw new Error('Selected option not found on current page');
   }
 
+  // Track the user's selection for telemetry
+  try {
+    const optionText = selectedOption.text;
+    const pageEl = document.querySelectorAll<HTMLElement>('.page')[currentPageIndex] as HTMLElement | null;
+    trackOptionSelection({
+      pageId: currentPage.id,
+      pageIndex: dataPageIndex,
+      optionId: selectedOption.id,
+      optionText,
+      pageType: pageEl ? (getPageType(pageEl) as 'conversation' | 'single-option' | 'multiple-options' | 'static') : undefined,
+    });
+  } catch {
+    // ignore telemetry failure
+  }
+
   const overlay = inlineOverlay || createInlineLoadingOverlay('Generating next page...');
   const nextIndex = currentPages.length; // next page is appended
   const nextPage = await fetchNextStoryPage(definition, selectedOption, nextIndex);
@@ -2076,6 +2176,8 @@ async function generateNextPageAndFlip(selectedOptionId: string, inlineOverlay?:
       pages: updatedPages,
     } as StoryStructure,
   });
+  // Track page generation
+  trackStorylineEvent('pageGenerated', { pageId: nextPage.id, pageIndex: nextIndex });
   // Append to DOM and prepare for flip
   if (!bookContainer) {
     bookContainer = document.querySelector<HTMLElement>('.book-container');
@@ -2234,6 +2336,12 @@ async function handleOptionClick(event: Event): Promise<void> {
       const textEl = (pageElement || document).querySelector('.conversation-response .conversation-text') as HTMLElement | null;
       if (textEl && typeof branchText === 'string' && branchText.trim().length > 0) {
         textEl.textContent = branchText;
+        // Telemetry: record branch prompt reveal
+        try {
+          trackStorylineEvent('branchRevealed', { pageId: pageData?.id, pageIndex: dataPageIndex, note: 'Conversation branch prompt shown' });
+        } catch {
+          // ignore telemetry failure
+        }
       }
     } catch {
       // ignore
@@ -2326,6 +2434,24 @@ if (document.readyState === 'loading') {
  */
 
 /**
+ * Start a brand new story: clear current state/metadata and navigate to creation screen
+ */
+function startNewStory(): void {
+  const btn = document.getElementById('newStoryButton');
+  if (btn) {
+    btn.classList.add('loading');
+  }
+  try {
+    // Clear store and metadata
+    store.clear();
+    try { localStorage.removeItem('storyMetadata'); } catch { /* ignore */ }
+  } finally {
+    // Navigate to story creation page
+    window.location.href = '/index.html';
+  }
+}
+
+/**
  * Restart the book - reloads the page to start from the beginning
  */
 function restartBook(): void {
@@ -2403,11 +2529,31 @@ const DEBUG_IDS = {
   copy: 'debugCopyBtn',
 } as const;
 
+/**
+ * Redact large/base64 fields from story state for debug display and clipboard copy.
+ */
+function redactStoryForDebug(story: Story | null): unknown {
+  if (!story) return story;
+  // Use a JSON replacer to strip/shorten heavy fields
+  // - Remove image.dataUrl entirely
+  // - Preserve prompt/alt/metadata
+  const replacer = (key: string, value: unknown) => {
+    if (key === 'dataUrl' && typeof value === 'string') {
+      // Replace with a compact descriptor to avoid leaking base64
+      const preview = value.startsWith('data:') ? value.slice(0, Math.min(value.indexOf(';base64,'), 64)) : '';
+      return preview ? `${preview};base64,[redacted]` : '[redacted dataUrl]';
+    }
+    return value;
+  };
+  return JSON.parse(JSON.stringify(story, replacer));
+}
+
 function updateDebugContent(): void {
   const contentEl = document.getElementById(DEBUG_IDS.content);
   if (!contentEl) return;
   const storyState = store.getState().story;
-  (contentEl as HTMLElement).textContent = JSON.stringify(storyState, null, 2);
+  const redacted = redactStoryForDebug(storyState);
+  (contentEl as HTMLElement).textContent = JSON.stringify(redacted, null, 2);
 }
 
 function showDebugMenu(): void {
@@ -2446,12 +2592,67 @@ document.addEventListener('DOMContentLoaded', () => {
   copyBtn?.addEventListener('click', async () => {
     try {
       const storyState = store.getState().story;
-      await navigator.clipboard?.writeText(JSON.stringify(storyState, null, 2));
+      const redacted = redactStoryForDebug(storyState);
+      await navigator.clipboard?.writeText(JSON.stringify(redacted, null, 2));
     } catch {
       // no-op
     }
   });
 });
+
+/**
+ * Attach an inline loading overlay with progress to the back cover image
+ * if it is still loading. Safe to call multiple times; will reuse overlay.
+ */
+function attachBackCoverImageProgress(): void {
+  const backCover = document.querySelector('.back-cover') as HTMLElement | null;
+  const img = document.getElementById('backCoverImage') as HTMLImageElement | null;
+  if (!backCover || !img) return;
+  // If already loaded, nothing to do
+  if (img.complete && img.naturalHeight !== 0) return;
+  // Reuse or create overlay
+  let overlay = backCover.querySelector('.image-loading') as HTMLElement | null;
+  let barFill = overlay?.querySelector('.image-progress__fill') as HTMLElement | null;
+  if (!overlay || !barFill) {
+    const ui = createImageLoadingOverlay();
+    overlay = ui.overlay;
+    barFill = ui.barFill;
+    backCover.appendChild(overlay);
+  }
+  backCover.classList.add('loading');
+  const sim = startSimulatedProgress(barFill!);
+  const finishOk = () => {
+    sim.stop();
+    barFill!.style.width = '100%';
+    window.setTimeout(() => {
+      try { overlay!.remove(); } catch { /* ignore */ }
+      backCover.classList.remove('loading');
+    }, 160);
+  };
+  const finishErr = () => {
+    sim.stop();
+    overlay!.classList.add('error');
+    window.setTimeout(() => {
+      try { overlay!.remove(); } catch { /* ignore */ }
+      backCover.classList.remove('loading');
+    }, 240);
+  };
+  // If already complete but dims not yet known, try decode to finalize quickly
+  if (typeof (img as any).decode === 'function') {
+    (img as any).decode().then(finishOk).catch(() => {
+      // fallback to events
+    });
+  }
+  if (img.complete) {
+    // If the browser thinks it's complete but dimensions are 0, rely on events
+    if (img.naturalHeight !== 0) {
+      finishOk();
+      return;
+    }
+  }
+  img.addEventListener('load', finishOk, { once: true });
+  img.addEventListener('error', finishErr, { once: true });
+}
 
 /**
  * Derive page policy from configuration length
@@ -2495,14 +2696,24 @@ async function maybeGenerateBackCoverSummaryIfMissing(): Promise<void> {
     const data = await resp.json();
     const summary: string = typeof data?.summary === 'string' ? data.summary : '';
     if (!summary || summary.trim().length === 0) return;
-    const updated = {
-      ...(structure || { frontCover: {}, pages: [] }),
-      backCover: {
-        ...(structure?.backCover || {}),
-        summary,
+    // Persist summary and any provided image metadata (prompt/alt)
+    const imageObj = (data && typeof data === 'object' && data.image && typeof data.image === 'object')
+      ? {
+          prompt: typeof data.image.prompt === 'string' ? data.image.prompt : undefined,
+          alt: typeof data.image.alt === 'string' ? data.image.alt : undefined,
+        }
+      : undefined;
+    const updatedStructure = { ...(structure || { frontCover: {}, pages: [] }) } as unknown as StoryStructure;
+    const nextBackCover = {
+      ...(updatedStructure.backCover || { summary: '' }),
+      summary,
+      image: {
+        ...(updatedStructure.backCover?.image || {}),
+        ...(imageObj || {}),
       },
-    } as unknown as StoryStructure;
-    store.updateStory({ structure: updated });
+    };
+    updatedStructure.backCover = nextBackCover;
+    store.updateStory({ structure: updatedStructure });
     // If present in DOM, fill immediately
     const summaryText = document.getElementById('storySummary');
     if (summaryText) {

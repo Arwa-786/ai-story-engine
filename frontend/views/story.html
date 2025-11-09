@@ -3,7 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Story Engine</title>
+    <title>Story Untold</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="mask-icon" href="/favicon.svg" color="#111827">
     <link rel="stylesheet" href="../styles/story-styles.css">
     <style>
         .debug-menu { position: fixed; top: 12px; right: 12px; width: min(640px, 92vw); height: min(70vh, 90vh); background: rgba(18,18,18,0.96); color: #e5e5e5; border: 1px solid #3a3a3a; border-radius: 10px; padding: 10px; z-index: 9999; display: none; box-shadow: 0 10px 30px rgba(0,0,0,0.45); }
@@ -31,6 +33,15 @@
 
     <!-- Book Controls -->
     <div class="book-controls" id="bookControls">
+        <button class="control-button new-button" id="newStoryButton">
+            <svg class="control-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                <polyline points="14 2 14 8 20 8"></polyline>
+                <line x1="12" y1="13" x2="12" y2="19"></line>
+                <line x1="9" y1="16" x2="15" y2="16"></line>
+            </svg>
+            <span>New Story</span>
+        </button>
         <button class="control-button restart-button" id="restartButton">
             <svg class="control-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <polyline points="23 4 23 10 17 10"></polyline>

@@ -66,7 +66,7 @@ app.post(
     const finalModelId =
       typeof modelId === "string" && modelId.trim().length > 0
         ? modelId.trim()
-        : process.env.GEMINI_MODEL_ID?.trim() || "gemini-2.0-flash-exp";
+        : process.env.GEMINI_MODEL_ID?.trim() || "gemini-2.5-flash";
 
     const finalTemperature =
       coerceNumber(temperature) ??
@@ -87,14 +87,12 @@ app.post(
       if (finalMaxOutputTokens !== undefined) {
         agentOptions.maxOutputTokens = finalMaxOutputTokens;
       }
+      // Provider slug is controlled inside textAgent with a strong default ("google-ai-studio")
+      // but allow override from env if explicitly set.
       const envProvider = process.env.CLOUDFLARE_AI_GATEWAY_PROVIDER?.trim();
-      if (envProvider) {
-        agentOptions.providerSlug = envProvider;
-      }
+      if (envProvider) agentOptions.providerSlug = envProvider;
       const envBaseUrl = process.env.CLOUDFLARE_AI_GATEWAY_BASE_URL?.trim();
-      if (envBaseUrl) {
-        agentOptions.baseUrlOverride = envBaseUrl;
-      }
+      if (envBaseUrl) agentOptions.baseUrlOverride = envBaseUrl;
       const { text } = await generateTextFromHashes(
         inputs,
         instructions,

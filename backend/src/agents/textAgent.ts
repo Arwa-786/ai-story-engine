@@ -2,8 +2,6 @@ import { generateTextViaCloudflareGoogleDirect } from "../ai/gatewayClient.js";
 
 export interface TextAgentOptions {
   modelId?: string;
-  temperature?: number;
-  maxOutputTokens?: number;
   providerSlug?: string;
   baseUrlOverride?: string;
 }
@@ -21,13 +19,33 @@ export async function generateTextFromHashes(
   const prompt = buildPromptFromHashes(inputs, instructions);
 
   // Use Cloudflare Gateway → Google AI Studio direct endpoint (matches working curl)
-  const { text } = await generateTextViaCloudflareGoogleDirect({
+  const request: {
+    modelId: string;
+    text: string;
+    apiVersion?: string;
+    providerSlug?: string;
+    baseUrlOverride?: string;
+  } = {
     modelId: resolvedModelId,
     text: prompt,
     apiVersion: process.env.TEXT_AGENT_DEFAULT_API_VERSION?.trim() || "v1",
-    providerSlug: "google-ai-studio",
-    baseUrlOverride: process.env.CLOUDFLARE_AI_GATEWAY_BASE_URL?.trim(),
-  });
+    providerSlug: options?.providerSlug?.trim() || "google-ai-studio",
+  };
+  const baseOverride =
+    options?.baseUrlOverride?.trim() ||
+    process.env.CLOUDFLARE_AI_GATEWAY_BASE_URL?.trim();
+  if (baseOverride) {
+    request.baseUrlOverride = baseOverride;
+  }
+  const { text } = await generateTextViaCloudflareGoogleDirect(
+    request as {
+      modelId: string;
+      text: string;
+      apiVersion?: string;
+      providerSlug?: string;
+      baseUrlOverride?: string;
+    },
+  );
   return { text, modelId: resolvedModelId };
 }
 

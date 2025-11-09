@@ -1,14 +1,5 @@
 import { setTimeout as delay } from "timers/promises";
 
-export interface GatewayTextRequest {
-  modelId: string;
-  prompt: string;
-  temperature?: number;
-  maxOutputTokens?: number;
-  providerSlug?: string; // e.g., "google-ai-studio"
-  baseUrlOverride?: string; // fully-qualified base URL; if omitted, resolved from env
-}
-
 export interface GatewayTextResponse {
   text: string;
 }
@@ -21,93 +12,6 @@ export interface GoogleDirectTextRequest {
   baseUrlOverride?: string;
   xGoogApiKey?: string; // if omitted, taken from process.env.GEMINI_API_KEY
   cfGatewayToken?: string; // if omitted, taken from process.env.CLOUDFLARE_API_KEY
-}
-
-/**
- * Calls Cloudflare AI Gateway using the OpenAI-compatible chat completions endpoint.
- * Assumes the gateway is configured to route to the provider specified by providerSlug.
- */
-export async function generateTextViaCloudflareGateway(
-  request: GatewayTextRequest,
-): Promise<GatewayTextResponse> {
-  const {
-    modelId,
-    prompt,
-    temperature,
-    maxOutputTokens,
-    providerSlug = normaliseSegment(process.env.CLOUDFLARE_AI_GATEWAY_PROVIDER) ?? "google",
-    baseUrlOverride,
-  } = request;
-
-  const cfToken = normaliseSecret(process.env.CLOUDFLARE_API_KEY);
-  if (!cfToken) {
-    throw new Error("CLOUDFLARE_API_KEY is required to call Cloudflare AI Gateway compat endpoint.");
-  }
-
-  const baseRoot = resolveGatewayBaseUrl(baseUrlOverride);
-  const compatBase = `${baseRoot}/compat`;
-  const modelSlug = `${normaliseSegment(providerSlug) ?? "google"}/${modelId}`;
-  const url = `${compatBase}/v1/chat/completions`;
-
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    Accept: "application/json",
-    Authorization: `Bearer ${cfToken}`,
-  };
-
-  const body: Record<string, unknown> = {
-    model: modelSlug,
-    messages: [
-      {
-        role: "user",
-        content: prompt,
-      },
-    ],
-  };
-
-  if (typeof temperature === "number" && !Number.isNaN(temperature)) {
-    body.temperature = temperature;
-  }
-  if (
-    typeof maxOutputTokens === "number" &&
-    Number.isFinite(maxOutputTokens) &&
-    maxOutputTokens > 0
-  ) {
-    body.max_tokens = maxOutputTokens;
-  }
-
-  const response = await fetch(url, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(body),
-  });
-
-  // Retry briefly on transient gateway errors
-  if (!response.ok && isTransient(response.status)) {
-    await delay(150);
-    const retry = await fetch(url, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
-    });
-    if (!retry.ok) {
-      const errText = await safeReadText(retry);
-      throw new Error(`Cloudflare Gateway error ${retry.status}: ${errText}`);
-    }
-    return { text: extractCompatText(await retry.json()) ?? "" };
-  }
-
-  if (!response.ok) {
-    const errText = await safeReadText(response);
-    throw new Error(`Cloudflare Gateway error ${response.status}: ${errText}`);
-  }
-
-  const payload = (await response.json()) as OpenAICompatResponse;
-  const text = extractCompatText(payload);
-  if (!text) {
-    throw new Error("Cloudflare Gateway did not return text content.");
-  }
-  return { text: text.trim() };
 }
 
 /**
@@ -141,7 +45,7 @@ export async function generateTextViaCloudflareGoogleDirect(
 
   const version = apiVersion?.trim() || "v1";
   const baseRoot = resolveGatewayBaseUrl(baseUrlOverride);
-  const provider = normaliseSegment(providerSlug) ?? "google-ai-studio";
+  const provider = mapProviderSegment(providerSlug);
   const url = `${baseRoot}/${provider}/${version}/models/${modelId}:generateContent`;
 
   const headers: Record<string, string> = {
@@ -204,27 +108,6 @@ function extractGoogleText(payload: GoogleDirectResponse): string | undefined {
   return texts.join("\n").trim();
 }
 
-interface OpenAICompatResponse {
-  id?: string;
-  choices?: Array<{
-    index?: number;
-    finish_reason?: string;
-    message?: {
-      role?: string;
-      content?: string;
-    };
-  }>;
-  usage?: unknown;
-}
-
-function extractCompatText(payload: OpenAICompatResponse): string | undefined {
-  const content = payload?.choices?.[0]?.message?.content;
-  if (typeof content === "string" && content.trim().length > 0) {
-    return content.trim();
-  }
-  return undefined;
-}
-
 function resolveGatewayBaseUrl(override?: string): string {
   const explicit = normaliseUrl(override);
   if (explicit) return explicit;
@@ -256,22 +139,20 @@ function normaliseSegment(raw?: string): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
-function normaliseSecret(raw?: string): string | undefined {
-  if (!raw) return undefined;
-  const trimmed = raw.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
-}
-
-function isTransient(status: number): boolean {
-  return status === 502 || status === 503 || status === 504 || status === 429;
-}
-
-async function safeReadText(response: Response): Promise<string> {
+async function safeReadText(response: any): Promise<string> {
   try {
     return await response.text();
   } catch {
     return "<unreadable response body>";
   }
+}
+
+function mapProviderSegment(slug?: string): string {
+  const s = normaliseSegment(slug);
+  if (!s) return "google-ai-studio";
+  if (s === "google") return "google-ai-studio";
+  if (s === "google-ai-studio") return "google-ai-studio";
+  return s;
 }
 
 

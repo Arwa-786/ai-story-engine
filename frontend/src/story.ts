@@ -2,7 +2,17 @@
  * Story Display Page
  */
 
-import type { StoryMetadata } from './types';
+// Local lightweight metadata type (decoupled from shared types)
+type CoverMetadata = {
+  title: string;
+  author?: string;
+  subtitle?: string;
+  coverImageUrl?: string;
+  genre?: string;
+  createdAt?: string;
+  startedAt?: string;
+  summary?: string;
+};
 
 // State
 let currentPageIndex = 0;
@@ -13,7 +23,7 @@ const bookContainer = document.querySelector<HTMLElement>('.book-container');
 /**
  * Sets the cover image and metadata dynamically
  */
-function setCoverImage(metadata: StoryMetadata): void {
+function setCoverImage(metadata: CoverMetadata): void {
   const coverImage = document.getElementById('coverImage') as HTMLImageElement;
   const coverTitle = document.getElementById('coverTitle') as HTMLElement;
   const coverSubtitle = document.getElementById('coverSubtitle') as HTMLElement;
@@ -35,7 +45,7 @@ function setCoverImage(metadata: StoryMetadata): void {
 /**
  * Update cover footer details (author, publish date)
  */
-function setCoverDetails(metadata: StoryMetadata): void {
+function setCoverDetails(metadata: CoverMetadata): void {
   const coverAuthor = document.getElementById('coverAuthor') as HTMLElement | null;
   const coverPublishDate = document.getElementById('coverPublishDate') as HTMLElement | null;
 
@@ -91,14 +101,14 @@ function loadStoryMetadata(): void {
   try {
     const storedConfig = localStorage.getItem('storyConfig');
     const storedMetadata = localStorage.getItem('storyMetadata');
-    const existingMetadata = storedMetadata ? (JSON.parse(storedMetadata) as StoryMetadata) : null;
+    const existingMetadata = storedMetadata ? (JSON.parse(storedMetadata) as CoverMetadata) : null;
     const nowIso = new Date().toISOString();
 
     if (storedConfig) {
       const config = JSON.parse(storedConfig);
       const coverImageUrl = generateCoverImageUrl(config.input);
 
-      const metadata: StoryMetadata = {
+      const metadata: CoverMetadata = {
         title: (config.input || existingMetadata?.title || 'An Untitled Story').trim(),
         subtitle: existingMetadata?.subtitle || 'An AI Generated Adventure',
         coverImageUrl,
@@ -118,7 +128,7 @@ function loadStoryMetadata(): void {
     const coverSubtitleElement = document.getElementById('coverSubtitle');
     const coverImageElement = document.getElementById('coverImage') as HTMLImageElement | null;
 
-    const fallbackMetadata: StoryMetadata = {
+    const fallbackMetadata: CoverMetadata = {
       title: coverTitleElement?.textContent?.trim() || existingMetadata?.title || 'An Untitled Story',
       subtitle: coverSubtitleElement?.textContent?.trim() || existingMetadata?.subtitle || 'An AI Generated Adventure',
       coverImageUrl: coverImageElement?.getAttribute('src') ?? existingMetadata?.coverImageUrl,
@@ -237,7 +247,6 @@ function setupBackCover(): void {
       metadata = storedMetadata ? (JSON.parse(storedMetadata) as StoryMetadata) : null;
     } else {
       // Fallback for test environment - use a default configuration
-      console.log('No stored config found, using test defaults');
       config = { input: 'forest fantasy adventure' }; // Default that matches test page
       metadata = {
         title: 'Test Story',
@@ -255,7 +264,6 @@ function setupBackCover(): void {
       const backImageUrl = generateBackCoverImageUrl(config.input);
       if (backCoverImage) {
         backCoverImage.src = backImageUrl;
-        console.log('Back cover image set to:', backImageUrl);
       }
       
       // Set summary
@@ -308,33 +316,16 @@ function setupBackCover(): void {
  * This ensures images are ready before pages flip
  */
 function preloadStoryImages(): void {
-  console.log('Preloading all story images...');
-  
   // Get all images in all pages
   const allImages = document.querySelectorAll<HTMLImageElement>('.page img');
-  let loadedCount = 0;
-  const totalImages = allImages.length;
   
   allImages.forEach((img) => {
-    // If image is already loaded, count it
-    if (img.complete && img.naturalHeight !== 0) {
-      loadedCount++;
-    } else {
-      // Force browser to load image by creating temporary reference
+    // Force browser to load image by creating temporary reference if not already loaded
+    if (!(img.complete && img.naturalHeight !== 0)) {
       const preloadImg = new Image();
-      preloadImg.onload = () => {
-        loadedCount++;
-        console.log(`Image loaded: ${preloadImg.src} (${loadedCount}/${totalImages})`);
-      };
-      preloadImg.onerror = () => {
-        console.warn(`Failed to load image: ${preloadImg.src}`);
-        loadedCount++;
-      };
       preloadImg.src = img.src;
     }
   });
-  
-  console.log(`Preloading ${totalImages} images...`);
 }
 
 // Load metadata on page load
@@ -344,10 +335,8 @@ loadStoryMetadata();
 preloadStoryImages();
 
 // Initialize first page
-console.log(`Story initialized with ${pages.length} pages`);
 if (pages.length > 0) {
   pages[0].classList.add('active');
-  console.log('First page activated:', pages[0].id);
 }
 
 /**
@@ -355,16 +344,12 @@ if (pages.length > 0) {
  * No next page will appear - right side stays empty
  */
 function flipToBackCover(): void {
-  console.log('flipToBackCover called - flipping final page (no next page on right)');
-  
   const currentPage = pages[currentPageIndex];
   
   if (!currentPage) {
     console.error('No current page found');
     return;
   }
-
-  console.log('Current page:', currentPage);
   
   // Get the back cover image URL to use for the flip animation
   const backCoverImage = document.getElementById('backCoverImage') as HTMLImageElement;
@@ -378,11 +363,9 @@ function flipToBackCover(): void {
     const updatedBackCoverImageUrl = updatedBackCoverImage?.src || '';
     
     if (updatedBackCoverImageUrl) {
-      console.log('Setting back cover image for animation:', updatedBackCoverImageUrl);
       currentPage.style.setProperty('--back-cover-image-url', `url("${updatedBackCoverImageUrl}")`);
     }
   } else {
-    console.log('Setting back cover image for animation:', backCoverImageUrl);
     currentPage.style.setProperty('--back-cover-image-url', `url("${backCoverImageUrl}")`);
   }
   
@@ -391,7 +374,6 @@ function flipToBackCover(): void {
   
   // Start final flip animation (background image back shows during flip)
   requestAnimationFrame(() => {
-    console.log('Starting final flip animation - background image back visible during flip');
     currentPage.classList.add('flipping-out-final');
   });
 
@@ -400,13 +382,9 @@ function flipToBackCover(): void {
 
   // After flip completes, replace background back with back cover content
   setTimeout(() => {
-    console.log('Flip complete - page is now flipped showing background back');
-    
     // Remove flipping-out-final animation class
     currentPage.classList.remove('flipping-out-final');
-    
-    console.log('Replacing background back with back cover content');
-    
+        
     // Apply permanent flipped state
     // This hides the background back and shows the back cover content in its place
     currentPage.classList.add('flipped-final');
@@ -424,7 +402,6 @@ function flipToBackCover(): void {
   
   // Start centering animation immediately with the flip
   if (bookContainer) {
-    console.log('Applying centering animation class - starts immediately with flip');
     bookContainer.classList.remove('back-cover-complete');
     bookContainer.classList.add('show-back-cover');
   }
@@ -432,7 +409,6 @@ function flipToBackCover(): void {
   // Once the flip and centering animations complete, hide the flipped page stack
   setTimeout(() => {
     if (bookContainer) {
-      console.log('Back cover settled - hiding flipped page stack');
       bookContainer.classList.add('back-cover-complete');
     }
   }, finalFlipDuration + backCoverSettleDelay);
@@ -441,7 +417,6 @@ function flipToBackCover(): void {
   setTimeout(() => {
     const bookControls = document.getElementById('bookControls');
     if (bookControls) {
-      console.log('Showing book controls (Restart and Export)');
       bookControls.classList.add('visible');
     }
   }, finalFlipDuration + 600); // Show after centering animation completes (1.2s flip + 0.6s extra delay)
@@ -449,44 +424,30 @@ function flipToBackCover(): void {
 
 // Flip to next page
 function flipToNextPage(): void {
-  console.log(`flipToNextPage called. Current index: ${currentPageIndex}, Total pages: ${pages.length}`);
-  
   if (currentPageIndex >= pages.length - 1) {
-    console.log('Already at last page - cannot flip further');
     return;
   }
 
-  console.log(`Flipping from page ${currentPageIndex} to ${currentPageIndex + 1}`);
-  
   const currentPage = pages[currentPageIndex];
   const nextPage = pages[currentPageIndex + 1];
-
-  console.log('Current page:', currentPage);
-  console.log('Next page:', nextPage);
 
   // Make next page visible behind the current page before animation starts
   currentPage.classList.remove('active');
   nextPage.classList.add('behind');
-  
-  console.log('Added behind class to next page');
-  
+
   // Start flip animation on next frame to ensure 'behind' class is applied first
   requestAnimationFrame(() => {
-    console.log('Adding flipping-out animation');
     currentPage.classList.add('flipping-out');
-    console.log('Current page classes:', currentPage.className);
   });
 
   // Complete the flip after animation
   setTimeout(() => {
-    console.log('Animation complete, cleaning up');
     currentPage.classList.remove('flipping-out');
     currentPage.classList.add('flipped'); // Keep page visible in flipped state
     nextPage.classList.remove('behind');
     nextPage.classList.add('active');
     
     currentPageIndex++;
-    console.log('New currentPageIndex:', currentPageIndex);
   }, 1200); // Match animation duration
 }
 
@@ -536,9 +497,6 @@ function handleOptionClick(event: Event): void {
   const pageElement = button.closest('.page') as HTMLElement;
   const pageType = getPageType(pageElement);
 
-  console.log(`Option clicked on ${pageType} page, isLastOption: ${isLastOption}`);
-  console.log(`Current page index: ${currentPageIndex}, Total pages: ${pages.length}`);
-
   // Disable all options immediately to prevent multiple clicks
   optionsContainer.querySelectorAll('.story-option').forEach(btn => {
     (btn as HTMLButtonElement).disabled = true;
@@ -563,7 +521,6 @@ function handleOptionClick(event: Event): void {
   
   if (isConversation) {
     // Conversation page - fade out and hide non-selected options
-    console.log('Conversation mode: fading out non-selected options');
     optionsContainer.querySelectorAll('.story-option').forEach(btn => {
       if (btn !== button) {
         btn.classList.add('fade-out');
@@ -589,7 +546,6 @@ function handleOptionClick(event: Event): void {
   
   if (responseElement) {
     // Conversation page - show next response level
-    console.log('Showing conversation response (possibly nested)');
     responseElement.classList.add('shown');
     
     setTimeout(() => {
@@ -624,10 +580,8 @@ function handleOptionClick(event: Event): void {
     const hasFinalPageBackCover = pageElement?.dataset.isFinal === 'true';
     
     if (isLastOption && hasFinalPageBackCover) {
-      console.log(`Auto-flipping to back cover after ${delay}ms`);
       setTimeout(flipToBackCover, delay);
     } else {
-      console.log(`Auto-flipping to next page after ${delay}ms`);
       setTimeout(flipToNextPage, delay);
     }
   }
@@ -641,11 +595,8 @@ const optionButtons = Array.from(allOptionButtons).filter(btn => {
   return !btn.closest('.conversation-response');
 });
 
-console.log(`Attaching click handlers to ${optionButtons.length} initially visible option buttons`);
-optionButtons.forEach((button, index) => {
+optionButtons.forEach((button) => {
   const btn = button as HTMLButtonElement;
-  const isLast = btn.dataset.isLast;
-  console.log(`  Button ${index + 1}: "${btn.textContent?.trim()}" ${isLast ? '(LAST)' : ''}`);
   button.addEventListener('click', handleOptionClick);
 });
 
@@ -679,8 +630,6 @@ if (coverPage) {
  * Restart the book - reloads the page to start from the beginning
  */
 function restartBook(): void {
-  console.log('Restarting book...');
-  
   // Show loading state
   const restartButton = document.getElementById('restartButton');
   if (restartButton) {
@@ -696,8 +645,6 @@ function restartBook(): void {
  * Uses html2pdf.js library for robust PDF generation
  */
 async function exportToPDF(): Promise<void> {
-  console.log('Starting PDF export...');
-  
   const exportButton = document.getElementById('exportButton');
   if (exportButton) {
     exportButton.classList.add('loading');
@@ -735,8 +682,6 @@ async function exportToPDF(): Promise<void> {
     // Sanitize filename
     const filename = `${storyTitle.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.pdf`;
     
-    console.log(`Exporting ${allPages.length} pages to PDF: ${filename}`);
-    
     // Create a temporary container for rendering pages
     const tempContainer = document.createElement('div');
     tempContainer.style.position = 'absolute';
@@ -770,9 +715,6 @@ async function exportToPDF(): Promise<void> {
     
     for (let i = 0; i < allPages.length; i++) {
       const page = allPages[i];
-      const pageType = page.dataset.page;
-      
-      console.log(`Processing page ${i + 1}/${allPages.length} (${pageType})`);
       
       // Clone the page for rendering
       const pageClone = page.cloneNode(true) as HTMLElement;
@@ -869,9 +811,7 @@ async function exportToPDF(): Promise<void> {
     
     // Cleanup
     document.body.removeChild(tempContainer);
-    
-    console.log('PDF export completed successfully!');
-    
+
     // Reset button state
     if (exportButton) {
       exportButton.classList.remove('loading');
@@ -931,6 +871,4 @@ document.addEventListener('DOMContentLoaded', () => {
   if (exportButton) {
     exportButton.addEventListener('click', exportToPDF);
   }
-  
-  console.log('Book controls initialized');
 });

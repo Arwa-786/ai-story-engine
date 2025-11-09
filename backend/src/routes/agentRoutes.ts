@@ -1,38 +1,62 @@
 import express, { Request, Response, Router } from "express";
-import { generateTextFromHashes } from "../agents/textAgent.js";
 
-interface TextAgentRequestBody {
-  inputs?: Record<string, unknown>;
+export interface HashGenerationRequest {
+  inputs: Record<string, unknown>;
   instructions?: string;
   jobId?: string;
 }
 
-const agentRouter: Router = express.Router();
+export interface HashGenerationResult {
+  text: string;
+  prompt: string;
+  provider: string;
+  modelId: string;
+  inputs: Record<string, string>;
+  jobId: string | null;
+  createdAt: string;
+}
 
-agentRouter.post("/text", async (req: Request, res: Response) => {
-  const { inputs, instructions } = req.body as TextAgentRequestBody;
+export interface TextRouterDeps {
+  generateText: (
+    request: HashGenerationRequest,
+  ) => Promise<HashGenerationResult>;
+}
 
-  if (!inputs || typeof inputs !== "object" || Array.isArray(inputs)) {
-    return res
-      .status(400)
-      .json({ error: "Request body must include an 'inputs' object." });
-  }
+export function createTextRouter(deps: TextRouterDeps): Router {
+  const router: Router = express.Router();
 
-  try {
-    const { text, modelId } = await generateTextFromHashes(inputs, instructions);
-    return res.json({
-      text,
-      modelId,
-    });
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : "Unknown error";
-    return res.status(500).json({
-      error: "Failed to generate text from hash inputs.",
-      detail,
-      provider: "cloudflare-gateway",
-    });
-  }
-});
+  router.post("/generate", async (req: Request, res: Response) => {
+    const { inputs, instructions, jobId } = req.body as Partial<HashGenerationRequest>;
 
-export default agentRouter;
+    if (!inputs || typeof inputs !== "object" || Array.isArray(inputs)) {
+      return res
+        .status(400)
+        .json({ error: "Request body must include an 'inputs' object." });
+    }
+
+    try {
+      const requestPayload: HashGenerationRequest = {
+        inputs,
+      };
+      if (instructions !== undefined) {
+        requestPayload.instructions = instructions;
+      }
+      if (jobId !== undefined) {
+        requestPayload.jobId = jobId;
+      }
+
+      const result = await deps.generateText(requestPayload);
+      return res.json(result);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "Unknown error";
+      return res.status(500).json({
+        error: "Failed to generate text from hash inputs.",
+        detail,
+      });
+    }
+  });
+
+  return router;
+}
+
 

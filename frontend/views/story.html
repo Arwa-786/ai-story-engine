@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Page Flip - All Features</title>
+    <link rel="stylesheet" href="../styles/story-styles.css">
+</head>
+<body>
+    <div class="book-container">
+        <!-- Left page (stationary) -->
+        <div class="left-page"></div>
+
+        <!-- Cover Page -->
+        <div class="page active" id="coverPage" data-page="cover">
+            <div class="book-cover">
+                <img 
+                    class="book-cover-image" 
+                    src="https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=1200&h=800&fit=crop" 
+                    alt="Test Story Cover"
+                    loading="eager"
+                >
+                <div class="cover-content">
+                    <h1 class="book-title">Test Story</h1>
+                    <div class="cover-subtitle">Testing All Page Types</div>
+                    <div class="tap-hint">Tap to Continue</div>
+                </div>
+                <div class="cover-footer">
+                    <div class="cover-author" id="coverAuthor">Written by You</div>
+                    <div class="cover-publish-date" id="coverPublishDate">Published —</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Page 1: Single Option (Auto-advance) -->
+        <div class="page" id="page1" data-page="story" data-page-type="single-option">
+            <div class="page-content">
+                <div class="story-content">
+                    <div class="story-text">
+                        <h3 style="color: #8b4513; margin-bottom: 15px;">Single Option Page</h3>
+                        <p>This page has only one option. When you click it, the story automatically advances to the next page.</p>
+                        <p>This is useful for linear narrative moments where there's only one path forward.</p>
+                    </div>
+                    
+                    <div class="story-image">
+                        <img src="https://via.placeholder.com/600x400/667eea/ffffff?text=Single+Option" alt="Single option example">
+                    </div>
+                    
+                    <div class="story-options">
+                        <button class="story-option" data-option="1">
+                            <span class="option-text">Continue the story</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Page 2: Multiple Options (Choice) -->
+        <div class="page" id="page2" data-page="story" data-page-type="multiple-options">
+            <div class="page-content">
+                <div class="story-content">
+                    <div class="story-text">
+                        <h3 style="color: #8b4513; margin-bottom: 15px;">Multiple Options Page</h3>
+                        <p>This page presents multiple choices. Each option could lead to different story branches.</p>
+                        <p>Choose your path wisely!</p>
+                    </div>
+                    
+                    <div class="story-image">
+                        <img src="https://via.placeholder.com/600x400/764ba2/ffffff?text=Multiple+Options" alt="Multiple options example">
+                    </div>
+                    
+                    <div class="story-options">
+                        <button class="story-option" data-option="1">
+                            <span class="option-text">Take the brave path</span>
+                        </button>
+                        <button class="story-option" data-option="2">
+                            <span class="option-text">Choose wisdom over courage</span>
+                        </button>
+                        <button class="story-option" data-option="3">
+                            <span class="option-text">Find a creative solution</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Page 3: Conversation (Multiple steps on same page) -->
+        <div class="page" id="page3" data-page="story" data-page-type="conversation">
+            <div class="page-content">
+                <div class="story-content">
+                    <div class="story-text">
+                        <h3 style="color: #8b4513; margin-bottom: 15px;">Conversation Page (Multi-step)</h3>
+                        <p>This page demonstrates a conversation flow where your first choice reveals more of the story and presents additional options.</p>
+                        <p>The page doesn't flip until you complete the conversation.</p>
+                    </div>
+                    
+                    <div class="story-image">
+                        <img src="https://via.placeholder.com/600x400/f093fb/ffffff?text=Conversation" alt="Conversation example">
+                    </div>
+                    
+                    <div class="story-options" id="conversationOptions1">
+                        <button class="story-option" data-option="1">
+                            <span class="option-text">Greet politely</span>
+                        </button>
+                        <button class="story-option" data-option="2">
+                            <span class="option-text">Ask a question</span>
+                        </button>
+                    </div>
+
+                    <!-- Response shown after first choice -->
+                    <div class="conversation-response hidden" id="conversationResponse">
+                        <div class="response-divider"></div>
+                        <div class="story-text response-text">
+                            <p><strong>You:</strong> "Greetings, friend!"</p>
+                            <p>The character smiles warmly. "Well met, traveler! I have something important to tell you. What would you like to know?"</p>
+                        </div>
+                        
+                        <div class="story-options">
+                            <button class="story-option" data-option="3">
+                                <span class="option-text">Ask about the journey ahead</span>
+                            </button>
+                            <button class="story-option" data-option="4">
+                                <span class="option-text">Request guidance</span>
+                            </button>
+                        </div>
+
+                        <!-- Second level response -->
+                        <div class="conversation-response hidden" id="conversationResponse2">
+                            <div class="response-divider"></div>
+                            <div class="story-text response-text">
+                                <p><strong>Character:</strong> "The path ahead is treacherous, but I see great courage in you. Remember these words: 'When darkness falls, seek the light within.'"</p>
+                                <p>The character hands you a small token. "This will guide you when the time comes. Now, are you ready to continue?"</p>
+                            </div>
+                            
+                            <div class="story-options">
+                                <button class="story-option" data-option="5">
+                                    <span class="option-text">Thank them and continue your journey</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Page 4: Final Story Page -->
+        <div class="page" id="page4" data-page="story" data-page-type="ending" data-is-final="true">
+            <div class="page-content">
+                <div class="story-content">
+                    <div class="story-text">
+                        <h3 style="color: #8b4513; margin-bottom: 15px;">Story Ending</h3>
+                        <p>This is the final page of the story. When you select an option marked as "last", it will flip to the back cover.</p>
+                        <p>The book will center itself to reveal the back cover with the story summary and credits.</p>
+                    </div>
+                    
+                    <div class="story-image">
+                        <img src="https://via.placeholder.com/600x400/4facfe/ffffff?text=The+End" alt="Ending">
+                    </div>
+                    
+                    <div class="story-options">
+                        <button class="story-option" data-option="1" data-is-last="true">
+                            <span class="option-text">Complete the journey</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Back cover content (shown on reverse side during flip) -->
+            <div class="page-back-content">
+                <div class="back-cover">
+                    <img 
+                        id="backCoverImage"
+                        class="back-cover-image" 
+                        src="https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=1200&h=800&fit=crop" 
+                        alt="Test Story Back Cover"
+                        loading="lazy"
+                    >
+                    <div class="back-cover-content">
+                        <div class="story-summary">
+                            <h1 class="back-cover-title" id="backBookTitle">Test Story</h1>
+                            <h2 class="summary-title">Summary</h2>
+                            <p class="summary-text" id="storySummary">
+                                This test demonstrates all the different page types and interactions in the AI Story Engine. You've experienced single-option pages, multiple-choice branches, conversation flows, and the ending sequence with the back cover reveal.
+                            </p>
+                        </div>
+                        
+                        <div class="book-metadata">
+                            <div class="metadata-section">
+                                <div class="metadata-label">Written by</div>
+                                <div class="metadata-value" id="backCoverAuthorValue">
+                                    <div class="author-line" id="backCoverPrimaryAuthor">You (Story Creator)</div>
+                                    <div class="author-line">AI (Story Generator)</div>
+                                    <div class="author-line">Team A from SharkByte</div>
+                                </div>
+                            </div>
+                            
+                            <div class="metadata-section">
+                                <div class="metadata-label">Published</div>
+                                <div class="metadata-value" id="publishDate">November 8, 2025</div>
+                            </div>
+                            
+                            <div class="metadata-section">
+                                <div class="metadata-label">Publisher</div>
+                                <div class="metadata-value">AI Story Engine</div>
+                            </div>
+                        </div>
+                        
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Book Controls -->
+    <div class="book-controls" id="bookControls">
+        <button class="control-button restart-button" id="restartButton">
+            <svg class="control-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="23 4 23 10 17 10"></polyline>
+                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+            </svg>
+            <span>Restart Book</span>
+        </button>
+        <button class="control-button export-button" id="exportButton">
+            <svg class="control-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+            <polyline points="14 2 14 8 20 8"></polyline>
+                <line x1="12" y1="18" x2="12" y2="12"></line>
+                <line x1="9" y1="15" x2="12" y2="18"></line>
+                <line x1="15" y1="15" x2="12" y2="18"></line>
+            </svg>
+            <span>Export to PDF</span>
+        </button>
+    </div>
+
+    <script type="module" src="/src/story.ts"></script>
+</body>
+</html>
+ 

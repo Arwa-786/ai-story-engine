@@ -4,7 +4,7 @@ import express from "express";
 import request from "supertest";
 import {
   createTextRouter,
-} from "./storyRoutes.js";
+} from "./agentRoutes.js";
 
 type HashGenerationRequest = {
   inputs: Record<string, unknown>;
@@ -80,3 +80,5 @@ test("POST /api/text/generate with inputs returns 200 and text response", async 
   assert.equal(res.body.jobId, "hash-job-test");
   assert.equal(res.body.createdAt, "2025-01-01T00:00:00.000Z");
 });
+
+

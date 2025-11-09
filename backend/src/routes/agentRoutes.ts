@@ -2,6 +2,7 @@ import express, { Request, Response, Router } from "express";
 import { Readable } from "stream";
 import { generateSpeech, type Env } from "../agents/speechAgents.js";
 import { generateImageFromPrompt } from "../agents/imageAgent.js";
+import { getCachedImage, setCachedImage } from "../utils/imageCache.js";
 
 export interface HashGenerationRequest {
   inputs: Record<string, unknown>;
@@ -146,11 +147,27 @@ export function createImageRouter(): Router {
     }
 
     try {
+      // Check cache first
+      const cached = getCachedImage(prompt, modelId);
+      if (cached) {
+        res.setHeader("X-Cache", "HIT");
+        return res.status(200).json({
+          modelId: cached.modelId || modelId || "",
+          elapsedMs: 0,
+          mimeType: cached.mimeType,
+          imageBase64: cached.imageBase64,
+        });
+      }
+      // Miss: generate and cache
       const started = performance.now();
-      const result = await generateImageFromPrompt(prompt, {
-        modelId: modelId,
-      });
+      const options: { modelId?: string } = {};
+      if (typeof modelId === "string" && modelId.trim().length > 0) {
+        options.modelId = modelId.trim();
+      }
+      const result = await generateImageFromPrompt(prompt, options);
       const elapsedMs = Math.round(performance.now() - started);
+      setCachedImage(prompt, modelId, result.imageBase64, result.mimeType);
+      res.setHeader("X-Cache", "MISS");
       return res.status(200).json({
         modelId: result.modelId,
         elapsedMs,

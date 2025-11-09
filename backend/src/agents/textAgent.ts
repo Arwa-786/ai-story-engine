@@ -15,6 +15,11 @@ export async function generateJsonFromInputs<T>(
   instructions: string,
   options?: TextAgentOptions,
 ): Promise<{ json: T; rawText: string; modelId: string }> {
+  console.debug("[textAgent] generateJsonFromInputs called", {
+    instructionLength: instructions?.length ?? 0,
+    inputKeys: Object.keys(inputs || {}),
+    modelIdOption: options?.modelId,
+  });
   const resolvedModelId =
     options?.modelId?.trim() ||
     process.env.GEMINI_MODEL_ID?.trim() ||
@@ -40,21 +45,42 @@ export async function generateJsonFromInputs<T>(
   if (baseOverride) {
     request.baseUrlOverride = baseOverride;
   }
-
-  const { text } = await generateTextViaCloudflareGoogleDirect(
-    request as {
-      modelId: string;
-      text: string;
-      apiVersion?: string;
-      providerSlug?: string;
-      baseUrlOverride?: string;
-    },
-  );
-
-  const raw = text.trim();
-  const cleaned = stripNonJsonWrappers(raw);
-  const parsed = JSON.parse(cleaned) as T;
-  return { json: parsed, rawText: raw, modelId: resolvedModelId };
+  console.debug("[textAgent] outgoing provider request (JSON mode)", {
+    modelId: request.modelId,
+    providerSlug: request.providerSlug,
+    apiVersion: request.apiVersion,
+    baseUrlOverride: request.baseUrlOverride,
+    text: request.text,
+  });
+  try {
+    const { text } = await generateTextViaCloudflareGoogleDirect(
+      request as {
+        modelId: string;
+        text: string;
+        apiVersion?: string;
+        providerSlug?: string;
+        baseUrlOverride?: string;
+      },
+    );
+    const raw = text.trim();
+    const cleaned = stripNonJsonWrappers(raw);
+    const parsed = JSON.parse(cleaned) as T;
+    console.info("[textAgent] generateJsonFromInputs succeeded", {
+      modelId: resolvedModelId,
+      rawLength: raw.length,
+    });
+    console.debug("[textAgent] returning payload to caller (JSON mode)", {
+      rawText: raw,
+      json: parsed,
+    });
+    return { json: parsed, rawText: raw, modelId: resolvedModelId };
+  } catch (err) {
+    console.error("[textAgent] generateJsonFromInputs failed", {
+      modelId: resolvedModelId,
+      errorMessage: err instanceof Error ? err.message : String(err),
+    });
+    throw err;
+  }
 }
 
 export async function generateTextFromHashes(
@@ -62,6 +88,11 @@ export async function generateTextFromHashes(
   instructions?: string,
   options?: TextAgentOptions,
 ): Promise<{ text: string; modelId: string }> {
+  console.debug("[textAgent] generateTextFromHashes called", {
+    instructionLength: instructions?.length ?? 0,
+    inputKeys: Object.keys(inputs || {}),
+    modelIdOption: options?.modelId,
+  });
   const resolvedModelId =
     options?.modelId?.trim() ||
     process.env.GEMINI_MODEL_ID?.trim() ||
@@ -88,16 +119,38 @@ export async function generateTextFromHashes(
   if (baseOverride) {
     request.baseUrlOverride = baseOverride;
   }
-  const { text } = await generateTextViaCloudflareGoogleDirect(
-    request as {
-      modelId: string;
-      text: string;
-      apiVersion?: string;
-      providerSlug?: string;
-      baseUrlOverride?: string;
-    },
-  );
-  return { text, modelId: resolvedModelId };
+  console.debug("[textAgent] outgoing provider request (TEXT mode)", {
+    modelId: request.modelId,
+    providerSlug: request.providerSlug,
+    apiVersion: request.apiVersion,
+    baseUrlOverride: request.baseUrlOverride,
+    text: request.text,
+  });
+  try {
+    const { text } = await generateTextViaCloudflareGoogleDirect(
+      request as {
+        modelId: string;
+        text: string;
+        apiVersion?: string;
+        providerSlug?: string;
+        baseUrlOverride?: string;
+      },
+    );
+    console.info("[textAgent] generateTextFromHashes succeeded", {
+      modelId: resolvedModelId,
+      textLength: text?.length ?? 0,
+    });
+    console.debug("[textAgent] returning payload to caller (TEXT mode)", {
+      text,
+    });
+    return { text, modelId: resolvedModelId };
+  } catch (err) {
+    console.error("[textAgent] generateTextFromHashes failed", {
+      modelId: resolvedModelId,
+      errorMessage: err instanceof Error ? err.message : String(err),
+    });
+    throw err;
+  }
 }
 
 function buildStrictJsonPrompt(

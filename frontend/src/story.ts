@@ -91,10 +91,401 @@ class GlobalStore {
 
 export const store = GlobalStore.getInstance();
 
+/**
+ * In-memory image cache keyed by `${storyId}:${kind}:${id?}`.
+ * Avoids reloading when images are already in state or loaded in session.
+ */
+type ImageCacheEntry = {
+  dataUrl: string;
+  mimeType?: string;
+  width?: number;
+  height?: number;
+  lastAccessed: number;
+};
+const imageCache: Map<string, ImageCacheEntry> = new Map();
+
+function getCurrentStoryId(): string | null {
+  try {
+    return store.getState().story?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function getFrontCoverKey(): string | null {
+  const id = getCurrentStoryId();
+  return id ? `${id}:frontCover` : null;
+}
+
+function getBackCoverKey(): string | null {
+  const id = getCurrentStoryId();
+  return id ? `${id}:backCover` : null;
+}
+
+function getPageKeyById(pageId: string): string | null {
+  const id = getCurrentStoryId();
+  return id ? `${id}:page:${pageId}` : null;
+}
+
+function cacheImageDataUrl(key: string | null, dataUrl: string, mimeType?: string): void {
+  if (!key || !dataUrl) return;
+  imageCache.set(key, {
+    dataUrl,
+    mimeType,
+    lastAccessed: Date.now(),
+  });
+}
+
+function getCachedImageDataUrl(key: string | null): string | null {
+  if (!key) return null;
+  const entry = imageCache.get(key);
+  if (!entry) return null;
+  entry.lastAccessed = Date.now();
+  return entry.dataUrl;
+}
+
+function isDataUrl(src: string | undefined): boolean {
+  return !!src && /^data:/i.test(src);
+}
+
+async function fetchUrlAsDataUrl(url: string): Promise<{ dataUrl: string; mimeType: string } | null> {
+  try {
+    const resp = await fetch(url, { mode: 'cors', credentials: 'omit' });
+    if (!resp.ok) return null;
+    const blob = await resp.blob();
+    const mimeType = blob.type || 'image/png';
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error('FileReader failed'));
+      reader.onload = () => resolve(String(reader.result));
+      reader.readAsDataURL(blob);
+    });
+    return { dataUrl, mimeType };
+  } catch {
+    return null;
+  }
+}
+
+function prefillImageCacheFromStore(): void {
+  try {
+    const story = store.getState().story;
+    if (!story || !story.structure) return;
+    const sid = story.id;
+    if (!sid) return;
+    const fc = story.structure.frontCover?.image?.dataUrl;
+    if (fc) cacheImageDataUrl(`${sid}:frontCover`, fc, story.structure.frontCover?.image?.mimeType);
+    const bc = story.structure.backCover?.image?.dataUrl;
+    if (bc) cacheImageDataUrl(`${sid}:backCover`, bc, story.structure.backCover?.image?.mimeType);
+    const pages = story.structure.pages || [];
+    pages.forEach(p => {
+      const d = p.image?.dataUrl;
+      if (d) cacheImageDataUrl(`${sid}:page:${p.id}`, d, p.image?.mimeType);
+    });
+  } catch {
+    // ignore
+  }
+}
+
 // State
 let currentPageIndex = 0;
 let storyStartTime: number = Date.now();
 let bookContainer: HTMLElement | null = null;
+
+/**
+ * Cover speech playback state
+ */
+let coverAudio: HTMLAudioElement | null = null;
+let coverAudioStarted = false;
+let coverAudioObjectUrls: string[] = [];
+let coverAudioFetchAborters: AbortController[] = [];
+let coverStopOnClickHandler: ((e: Event) => void) | null = null;
+
+/**
+ * Per-page narration playback state
+ */
+let pageSourceNode: AudioBufferSourceNode | null = null;
+let pageGainNode: GainNode | null = null;
+let pageAudioFetchAborter: AbortController | null = null;
+let pageStopOnClickHandler: ((e: Event) => void) | null = null;
+
+/**
+ * Shared AudioContext unlock for reliable autoplay after user gesture
+ */
+let sharedAudioContext: AudioContext | null = null;
+let audioUnlockSetup = false;
+
+function getAudioContext(): AudioContext {
+  if (!sharedAudioContext) {
+    const Ctor = (window as any).AudioContext || (window as any).webkitAudioContext;
+    sharedAudioContext = new Ctor();
+  }
+  return sharedAudioContext!;
+}
+
+function setupAudioUnlock(): void {
+  if (audioUnlockSetup) return;
+  audioUnlockSetup = true;
+  const tryResume = () => {
+    try {
+      const ctx = getAudioContext();
+      if (ctx.state !== 'running') {
+        void ctx.resume();
+      }
+    } catch {
+      // ignore
+    } finally {
+      document.removeEventListener('click', tryResume, true);
+      document.removeEventListener('touchstart', tryResume, true);
+      document.removeEventListener('keydown', tryResume, true);
+    }
+  };
+  document.addEventListener('click', tryResume, true);
+  document.addEventListener('touchstart', tryResume, true);
+  document.addEventListener('keydown', tryResume, true);
+}
+
+function getStoryGenre(): string | undefined {
+  try {
+    const g = store.getState().story?.definition?.genre;
+    return typeof g === 'string' ? g : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function fetchSpeechObjectUrl(text: string, genre?: string, signal?: AbortSignal): Promise<string> {
+  const resp = await fetch('/api/speech/generate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text, genre }),
+    signal,
+  });
+  if (!resp.ok) {
+    const errText = await resp.text().catch(() => '');
+    throw new Error(`Speech request failed (${resp.status}) ${errText}`);
+  }
+  const blob = await resp.blob();
+  const url = URL.createObjectURL(blob);
+  coverAudioObjectUrls.push(url);
+  return url;
+}
+
+function stopCoverAudio(): void {
+  try {
+    // Abort any in-flight fetches
+    coverAudioFetchAborters.forEach(a => { try { a.abort(); } catch { /* ignore */ } });
+    coverAudioFetchAborters = [];
+    // Stop audio element
+    if (coverAudio) {
+      try {
+        coverAudio.pause();
+      } catch {
+        // ignore
+      }
+      coverAudio.src = '';
+      coverAudio.load();
+      coverAudio = null;
+    }
+    // Revoke created URLs
+    coverAudioObjectUrls.forEach(url => {
+      try { URL.revokeObjectURL(url); } catch { /* ignore */ }
+    });
+    coverAudioObjectUrls = [];
+    // Remove click-to-stop listener
+    if (coverStopOnClickHandler) {
+      document.removeEventListener('click', coverStopOnClickHandler, true);
+      coverStopOnClickHandler = null;
+    }
+  } catch {
+    // no-op
+  } finally {
+    coverAudioStarted = false;
+  }
+}
+
+function stopPageAudio(): void {
+  try {
+    if (pageAudioFetchAborter) {
+      try { pageAudioFetchAborter.abort(); } catch { /* ignore */ }
+      pageAudioFetchAborter = null;
+    }
+    if (pageSourceNode) {
+      try { pageSourceNode.stop(0); } catch { /* ignore */ }
+      try { pageSourceNode.disconnect(); } catch { /* ignore */ }
+      pageSourceNode.onended = null;
+      pageSourceNode = null;
+    }
+    if (pageGainNode) {
+      try { pageGainNode.disconnect(); } catch { /* ignore */ }
+      pageGainNode = null;
+    }
+    if (pageStopOnClickHandler) {
+      document.removeEventListener('click', pageStopOnClickHandler, true);
+      pageStopOnClickHandler = null;
+    }
+  } catch {
+    // ignore
+  }
+}
+
+async function fetchSpeechArrayBuffer(text: string, genre?: string, signal?: AbortSignal): Promise<ArrayBuffer> {
+  const resp = await fetch('/api/speech/generate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text, genre }),
+    signal,
+  });
+  if (!resp.ok) {
+    const errText = await resp.text().catch(() => '');
+    throw new Error(`Speech request failed (${resp.status}) ${errText}`);
+  }
+  return await resp.arrayBuffer();
+}
+
+function scheduleCoverReadAloud(): void {
+  if (coverAudioStarted) return;
+  // Delay 1s after cover appears
+  window.setTimeout(async () => {
+    // Ensure we are still on the cover page
+    const pagesNow = getPages();
+    const first = pagesNow[0];
+    if (!first || first.dataset.page !== 'cover' || currentPageIndex !== 0) return;
+    // Resolve texts from DOM
+    const titleEl = document.getElementById('coverTitle');
+    const subtitleEl = document.getElementById('coverSubtitle');
+    const title = (titleEl?.textContent || '').trim();
+    const tagline = (subtitleEl?.textContent || '').trim();
+    if (!title && !tagline) return;
+    // Start playback
+    coverAudioStarted = true;
+    const genre = getStoryGenre();
+    const abortTitle = new AbortController();
+    const abortTag = new AbortController();
+    coverAudioFetchAborters = [abortTitle, abortTag];
+    try {
+      // Prefetch both segments concurrently for gapless-ish playback
+      const requests: Array<Promise<string>> = [];
+      if (title) requests.push(fetchSpeechObjectUrl(title, genre, abortTitle.signal));
+      if (tagline) requests.push(fetchSpeechObjectUrl(tagline, genre, abortTag.signal));
+      const urls = await Promise.all(requests);
+      if (urls.length === 0) {
+        coverAudioStarted = false;
+        return;
+      }
+      let index = 0;
+      coverAudio = new Audio(urls[index]);
+      coverAudio.addEventListener('ended', () => {
+        index += 1;
+        if (!coverAudio) return;
+        if (index < urls.length) {
+          coverAudio.src = urls[index];
+          // Attempt immediate play of next segment
+          void coverAudio.play().catch(() => {
+            // If autoplay continuation fails, stop gracefully
+            stopCoverAudio();
+          });
+        } else {
+          // Completed both segments
+          stopCoverAudio();
+        }
+      });
+      coverAudio.addEventListener('error', () => {
+        stopCoverAudio();
+      });
+      // Attempt to play the first segment
+      try {
+        setupAudioUnlock();
+        await coverAudio.play();
+        // Only after playback actually starts, attach click-to-stop
+        coverStopOnClickHandler = () => { stopCoverAudio(); };
+        document.addEventListener('click', coverStopOnClickHandler, true);
+      } catch {
+        // Autoplay blocked; set up a one-time capture click to start audio instead of flipping
+        const oneTimeUnlock = async (ev: Event) => {
+          try {
+            // Prevent this click from bubbling to the cover flip handler
+            ev.preventDefault();
+            if (typeof (ev as any).stopImmediatePropagation === 'function') {
+              (ev as any).stopImmediatePropagation();
+            }
+            ev.stopPropagation();
+            document.removeEventListener('click', oneTimeUnlock, true);
+            setupAudioUnlock();
+            if (!coverAudio) {
+              // If coverAudio was torn down for some reason, rebuild from urls
+              coverAudio = new Audio(urls[0]);
+              index = 0;
+              coverAudio.addEventListener('ended', () => {
+                index += 1;
+                if (!coverAudio) return;
+                if (index < urls.length) {
+                  coverAudio.src = urls[index];
+                  void coverAudio.play().catch(() => stopCoverAudio());
+                } else {
+                  stopCoverAudio();
+                }
+              });
+              coverAudio.addEventListener('error', () => stopCoverAudio());
+            }
+            await coverAudio.play();
+            // Attach normal click-to-stop behavior after audio is audibly playing
+            coverStopOnClickHandler = () => { stopCoverAudio(); };
+            document.addEventListener('click', coverStopOnClickHandler, true);
+          } catch {
+            // If still blocked or failed, just tear down and allow normal navigation
+            stopCoverAudio();
+          }
+        };
+        // Capture-phase so we intercept before page flip handler
+        document.addEventListener('click', oneTimeUnlock, true);
+      }
+    } catch {
+      stopCoverAudio();
+    }
+  }, 1000);
+}
+
+async function startPageNarrationForDomIndex(domIndex: number): Promise<void> {
+  try {
+    setupAudioUnlock();
+    // Only read for actual story pages (not cover)
+    const dataIndex = mapDomToDataIndex(domIndex);
+    if (dataIndex < 0) return;
+    const storyNow = store.getState().story;
+    const page = storyNow?.structure?.pages?.[dataIndex];
+    const text = (page?.text || '').trim();
+    if (!text) return;
+    // Stop any ongoing narrations first
+    stopCoverAudio();
+    stopPageAudio();
+    const genre = getStoryGenre();
+    // Fetch speech and play via WebAudio for reliable playback
+    pageAudioFetchAborter = new AbortController();
+    const bufferData = await fetchSpeechArrayBuffer(text, genre, pageAudioFetchAborter.signal);
+    const ctx = getAudioContext();
+    const audioBuffer = await ctx.decodeAudioData(bufferData.slice(0));
+    // Build graph: BufferSource -> Gain -> Destination
+    pageSourceNode = ctx.createBufferSource();
+    pageSourceNode.buffer = audioBuffer;
+    pageGainNode = ctx.createGain();
+    pageGainNode.gain.value = 1.0;
+    pageSourceNode.connect(pageGainNode);
+    pageGainNode.connect(ctx.destination);
+    // Stop on any user click
+    pageStopOnClickHandler = () => { stopPageAudio(); };
+    document.addEventListener('click', pageStopOnClickHandler, true);
+    pageSourceNode.onended = () => {
+      stopPageAudio();
+    };
+    // Ensure context is running, then start
+    if (ctx.state !== 'running') {
+      try { await ctx.resume(); } catch { /* ignore */ }
+    }
+    pageSourceNode.start(0);
+  } catch {
+    stopPageAudio();
+  }
+}
 
 function getPages(): NodeListOf<HTMLElement> {
   return document.querySelectorAll<HTMLElement>('.page');
@@ -136,41 +527,7 @@ function setCoverDetails(metadata: { author?: string; createdAt?: string }): voi
 
   if (coverPublishDate) {
     const createdAt = metadata.createdAt || new Date().toISOString();
-    coverPublishDate.textContent = `Published ${formatDate(createdAt)}`;
-  }
-}
-
-/**
- * Generate a cover image URL based on story input
- * This is a placeholder that uses Unsplash for demo purposes
- */
-function generateCoverImageUrl(storyInput: string): string {
-  // Map keywords to appropriate Unsplash image searches
-  const keywords = storyInput.toLowerCase();
-  
-  if (keywords.includes('forest') || keywords.includes('tree') || keywords.includes('wood')) {
-    return 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=1200&h=800&fit=crop';
-  } else if (keywords.includes('space') || keywords.includes('galaxy') || keywords.includes('star')) {
-    return 'https://images.unsplash.com/photo-1419242902214-272b3f66ee7a?w=1200&h=800&fit=crop';
-  } else if (keywords.includes('ocean') || keywords.includes('sea') || keywords.includes('water')) {
-    return 'https://images.unsplash.com/photo-1505142468610-359e7d316be0?w=1200&h=800&fit=crop';
-  } else if (keywords.includes('mountain') || keywords.includes('peak') || keywords.includes('cliff')) {
-    return 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=1200&h=800&fit=crop';
-  } else if (keywords.includes('city') || keywords.includes('urban') || keywords.includes('street')) {
-    return 'https://images.unsplash.com/photo-1449824913935-59a10b8d2000?w=1200&h=800&fit=crop';
-  } else if (keywords.includes('desert') || keywords.includes('sand') || keywords.includes('dune')) {
-    return 'https://images.unsplash.com/photo-1509316785289-025f5b846b35?w=1200&h=800&fit=crop';
-  } else if (keywords.includes('castle') || keywords.includes('medieval') || keywords.includes('knight')) {
-    return 'https://images.unsplash.com/photo-1549048851-e5fa07c0d3af?w=1200&h=800&fit=crop';
-  } else if (keywords.includes('magic') || keywords.includes('fantasy') || keywords.includes('wizard')) {
-    return 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=1200&h=800&fit=crop';
-  } else if (keywords.includes('dragon') || keywords.includes('creature') || keywords.includes('monster')) {
-    return 'https://images.unsplash.com/photo-1551244072-5d12893278ab?w=1200&h=800&fit=crop';
-  } else if (keywords.includes('mystery') || keywords.includes('dark') || keywords.includes('noir')) {
-    return 'https://images.unsplash.com/photo-1519681393784-d120267933ba?w=1200&h=800&fit=crop';
-  } else {
-    // Default fantasy/adventure image
-    return 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=1200&h=800&fit=crop';
+    coverPublishDate.textContent = formatDate(createdAt);
   }
 }
 
@@ -215,7 +572,6 @@ function loadStoryMetadata(): void {
       imgFromDefinition?.dataUrl ||
       imgFromStructure?.url ||
       imgFromDefinition?.url ||
-      (sourceInput ? generateCoverImageUrl(sourceInput) : undefined) ||
       coverImageElement?.getAttribute('src') ||
       existingMetadata?.coverImageUrl;
 
@@ -267,40 +623,6 @@ function calculateDuration(): string {
 }
 
 /**
- * Generate a complementary back cover image URL (different from front)
- * This uses a related but different image from the front cover
- */
-function generateBackCoverImageUrl(storyInput: string): string {
-  // Map keywords to complementary Unsplash image searches
-  const keywords = storyInput.toLowerCase();
-  
-  if (keywords.includes('forest') || keywords.includes('tree') || keywords.includes('wood')) {
-    return 'https://images.unsplash.com/photo-1511497584788-876760111969?w=1200&h=800&fit=crop'; // Misty forest path
-  } else if (keywords.includes('space') || keywords.includes('galaxy') || keywords.includes('star')) {
-    return 'https://images.unsplash.com/photo-1462331940025-496dfbfc7564?w=1200&h=800&fit=crop'; // Nebula
-  } else if (keywords.includes('ocean') || keywords.includes('sea') || keywords.includes('water')) {
-    return 'https://images.unsplash.com/photo-1559827260-dc66d52bef19?w=1200&h=800&fit=crop'; // Ocean waves at sunset
-  } else if (keywords.includes('mountain') || keywords.includes('peak') || keywords.includes('cliff')) {
-    return 'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?w=1200&h=800&fit=crop'; // Mountain range sunset
-  } else if (keywords.includes('city') || keywords.includes('urban') || keywords.includes('street')) {
-    return 'https://images.unsplash.com/photo-1480714378408-67cf0d13bc1b?w=1200&h=800&fit=crop'; // City night lights
-  } else if (keywords.includes('desert') || keywords.includes('sand') || keywords.includes('dune')) {
-    return 'https://images.unsplash.com/photo-1473580044384-7ba9967e16a0?w=1200&h=800&fit=crop'; // Desert sunset
-  } else if (keywords.includes('castle') || keywords.includes('medieval') || keywords.includes('knight')) {
-    return 'https://images.unsplash.com/photo-1467269204594-9661b134dd2b?w=1200&h=800&fit=crop'; // Medieval castle
-  } else if (keywords.includes('magic') || keywords.includes('fantasy') || keywords.includes('wizard')) {
-    return 'https://images.unsplash.com/photo-1511497584788-876760111969?w=1200&h=800&fit=crop'; // Mystical forest
-  } else if (keywords.includes('dragon') || keywords.includes('creature') || keywords.includes('monster')) {
-    return 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=1200&h=800&fit=crop'; // Dark mountains
-  } else if (keywords.includes('mystery') || keywords.includes('dark') || keywords.includes('noir')) {
-    return 'https://images.unsplash.com/photo-1517331156700-3c241d2b4d83?w=1200&h=800&fit=crop'; // Dark foggy scene
-  } else {
-    // Default complementary fantasy/adventure image
-    return 'https://images.unsplash.com/photo-1475274047050-1d0c0975c63e?w=1200&h=800&fit=crop'; // Sunset landscape
-  }
-}
-
-/**
  * Generate story summary based on config
  */
 function generateStorySummary(input: string): string {
@@ -328,7 +650,7 @@ function generateStorySummary(input: string): string {
 /**
  * Setup back cover with dynamic content
  */
-function setupBackCover(): void {
+async function setupBackCover(): Promise<void> {
   try {
     const storedMetadata = localStorage.getItem('storyMetadata');
     const story = store.getState().story;
@@ -340,11 +662,17 @@ function setupBackCover(): void {
     const input = (story?.configuration?.description?.trim() || 'forest fantasy adventure');
 
     if (input) {
-      // Set back cover image (use a complementary image, not the same as front)
+      // Ensure back cover summary exists (LLM-generated)
+      await maybeGenerateBackCoverSummaryIfMissing();
+      // Ensure back cover art exists (AI-generated)
+      await maybeGenerateBackCoverImageIfMissing();
       const backCoverImage = document.getElementById('backCoverImage') as HTMLImageElement;
-      const backImageUrl = generateBackCoverImageUrl(input);
-      if (backCoverImage) {
-        backCoverImage.src = backImageUrl;
+      const current = store.getState().story;
+      const backSrc =
+        current?.structure?.backCover?.image?.dataUrl ||
+        current?.structure?.backCover?.image?.url;
+      if (backCoverImage && backSrc) {
+        backCoverImage.src = backSrc;
       }
       
       // Set summary
@@ -473,7 +801,7 @@ function buildCoverElement(frontCover?: FrontCover): HTMLElement {
   author.textContent = 'Written by You';
   const publish = createElement('div', 'cover-publish-date');
   publish.id = 'coverPublishDate';
-  publish.textContent = 'Published —';
+  publish.textContent = '';
   footer.appendChild(author);
   footer.appendChild(publish);
 
@@ -536,13 +864,60 @@ function buildStoryPageElement(pageData: StoryPage, isFinal: boolean): HTMLEleme
 
   // Image
   const resolvedSrc = pageData.image?.dataUrl || pageData.image?.url;
-  if (resolvedSrc) {
+  {
     const imageWrap = createElement('div', 'story-image');
     const img = document.createElement('img');
-    img.src = resolvedSrc;
     img.alt = pageData.image?.alt || 'Story scene';
+    img.loading = 'lazy';
+    img.setAttribute('decoding', 'async');
     imageWrap.appendChild(img);
     storyContent.appendChild(imageWrap);
+    const cachedSrc = getCachedImageDataUrl(getPageKeyById(pageData.id));
+    const initialSrc = cachedSrc || resolvedSrc;
+    if (initialSrc) {
+      const { overlay, barFill } = createImageLoadingOverlay();
+      imageWrap.appendChild(overlay);
+      imageWrap.classList.add('loading');
+      const sim = startSimulatedProgress(barFill);
+      let handled = false;
+      const handleLoaded = () => {
+        if (handled) return;
+        handled = true;
+        sim.stop();
+        barFill.style.width = '100%';
+        window.setTimeout(() => overlay.remove(), 180);
+        imageWrap.classList.remove('loading');
+        if (isDataUrl(initialSrc)) {
+          cacheImageDataUrl(getPageKeyById(pageData.id), initialSrc);
+        }
+      };
+      const handleError = () => {
+        if (handled) return;
+        handled = true;
+        sim.stop();
+        overlay.classList.add('error');
+        window.setTimeout(() => {
+          try { overlay.remove(); } catch {}
+          imageWrap.classList.remove('loading');
+        }, 220);
+      };
+      img.onload = handleLoaded;
+      img.onerror = handleError;
+      img.src = initialSrc;
+      // Hide loader as soon as a valid src is set
+      imageWrap.classList.remove('loading');
+      if (img.complete && img.naturalHeight !== 0) {
+        handleLoaded();
+      }
+      // Ensure paint completion even for cached images
+      try {
+        if (typeof (img as any).decode === 'function') {
+          (img as any).decode().then(handleLoaded).catch(handleLoaded);
+        }
+      } catch {
+        // ignore decode support issues
+      }
+    }
   }
 
   // Options
@@ -702,16 +1077,21 @@ function attachOptionHandlers(root: Document | HTMLElement = document): void {
 
 function initializeStoryPage(): void {
   // Build DOM from store/structure first
+  prefillImageCacheFromStore();
   buildStoryFromStore();
+  // Prepare audio unlock on first user interaction
+  setupAudioUnlock();
   // Load metadata after DOM is present
   loadStoryMetadata();
-  // Preload all story images
-  preloadStoryImages();
+  // Begin warming critical images while on the cover
+  warmupImagesOnCover().catch(() => {});
   // Initialize first page
   const pagesNow = getPages();
   if (pagesNow.length > 0) {
     pagesNow[0].classList.add('active');
   }
+  // Schedule cover read aloud once the cover is visible
+  scheduleCoverReadAloud();
   // Attach initial handlers for options
   attachOptionHandlers();
   // If no pages yet but we have a definition, attempt to fetch the opening page here
@@ -724,11 +1104,17 @@ function initializeStoryPage(): void {
       maybeGenerateCoverImageIfMissing().catch(err => {
         console.warn('Cover image generation failed:', err);
       });
+    // Warmup first page and back cover images once structure exists
+    warmupImagesOnCover().catch(() => {});
     });
   // Handle cover page click
   const coverPage = document.getElementById('coverPage');
   if (coverPage) {
-    coverPage.addEventListener('click', flipToNextPage);
+    coverPage.addEventListener('click', () => {
+      // Stop cover narration on user interaction, then flip
+      stopCoverAudio();
+      flipToNextPage();
+    });
   }
   // Keyboard navigation
   document.addEventListener('keydown', (event) => {
@@ -854,6 +1240,34 @@ function buildCoverPromptFromDefinition(definition: StoryDefinition): string {
 }
 
 /**
+ * Build a complementary back cover prompt from the StoryDefinition.
+ */
+function buildBackCoverPromptFromDefinition(definition: StoryDefinition): string {
+  const title = definition.title?.trim();
+  const genre = definition.genre?.trim();
+  const theme = definition.theme?.trim();
+  const location = definition.location?.trim();
+  const period = definition.timePeriod?.trim();
+  const world = definition.worldDescription?.trim();
+  const protagonist = definition.protagonist?.name?.trim();
+  const antagonist = definition.antagonist?.name?.trim();
+  const base = [
+    title ? `Back cover illustration for "${title}"` : 'Back cover illustration',
+    genre ? `genre: ${genre}` : '',
+    theme ? `theme: ${theme}` : '',
+    location ? `setting: ${location}` : '',
+    period ? `time period: ${period}` : '',
+    protagonist ? `featuring protagonist ${protagonist}` : '',
+    antagonist ? `and antagonist ${antagonist}` : '',
+  ]
+    .filter(Boolean)
+    .join(', ');
+  const perspective = ', complementary to front cover, alternate angle, subtle, no text';
+  const composition = ', cinematic, detailed, rich lighting, horizontal 3:2, dust jacket back art';
+  return `${base}${perspective}${(world ? `, world: ${world}` : '')}${composition}`;
+}
+
+/**
  * Generate a cover image using the backend image agent if none is present.
  * Shows a loading overlay: "Generating cover art..."
  */
@@ -905,6 +1319,9 @@ async function maybeGenerateCoverImageIfMissing(): Promise<void> {
       structure: ({ ...structure, frontCover: newFrontCover } as unknown as StoryStructure),
     });
 
+    // Cache in-memory to avoid future reloads
+    cacheImageDataUrl(getFrontCoverKey(), dataUrl, mimeType);
+
     // Update DOM immediately without full rebuild
     const coverImage = document.getElementById('coverImage') as HTMLImageElement | null;
     if (coverImage) {
@@ -919,6 +1336,454 @@ async function maybeGenerateCoverImageIfMissing(): Promise<void> {
     throw err;
   } finally {
     removeInlineLoadingOverlay(overlay);
+  }
+}
+
+/**
+ * Generate a back cover image using the backend image agent if none is present.
+ */
+async function maybeGenerateBackCoverImageIfMissing(): Promise<void> {
+  const current = store.getState().story;
+  const definition = current?.definition;
+  if (!definition) return;
+  const existing =
+    current?.structure?.backCover?.image?.dataUrl ||
+    current?.structure?.backCover?.image?.url;
+  if (existing) return;
+  const basePrompt = definition.image?.prompt?.trim() || buildBackCoverPromptFromDefinition(definition);
+  if (!basePrompt || basePrompt.length === 0) return;
+  try {
+    const resp = await fetch('/api/story/cover-image', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt: basePrompt }),
+    });
+    if (!resp.ok) {
+      throw new Error(`Back cover image request failed (${resp.status})`);
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data: any = await resp.json();
+    const mimeType: string = typeof data?.mimeType === 'string' && data.mimeType ? data.mimeType : 'image/png';
+    const base64: string | undefined = data?.imageBase64;
+    if (!base64 || typeof base64 !== 'string' || base64.length === 0) {
+      throw new Error('Invalid back cover image data returned');
+    }
+    const dataUrl = `data:${mimeType};base64,${base64}`;
+    const structure = current?.structure || buildDefaultStructure();
+    const updatedBackCover = {
+      ...(structure.backCover || { summary: '' }),
+      image: {
+        ...(structure.backCover?.image || {}),
+        dataUrl,
+        mimeType,
+        prompt: basePrompt,
+        alt: definition.title ? `${definition.title} - Back Cover` : 'Back Cover',
+      },
+    };
+    store.updateStory({
+      structure: ({ ...structure, backCover: updatedBackCover } as unknown as StoryStructure),
+    });
+    // Cache in-memory
+    cacheImageDataUrl(getBackCoverKey(), dataUrl, mimeType);
+    // Update DOM immediately if element is present
+    const backCoverImage = document.getElementById('backCoverImage') as HTMLImageElement | null;
+    if (backCoverImage) {
+      backCoverImage.src = dataUrl;
+      backCoverImage.alt = updatedBackCover.image?.alt || backCoverImage.alt;
+    }
+  } catch {
+    // Silent failure; CSS gradient fallback remains
+  }
+}
+
+/**
+ * Build a square scene illustration prompt for a specific page.
+ * Prioritises page.image.prompt, then derives from definition + page text.
+ */
+function buildScenePromptFromPage(definition: StoryDefinition, page: StoryPage, pageIndex: number): string {
+  const fallback = page.image?.prompt?.trim();
+  if (fallback && fallback.length > 0) return `${fallback}, square 1:1, illustration, cohesive with cover`;
+  const title = definition.title?.trim();
+  const genre = definition.genre?.trim();
+  const theme = definition.theme?.trim();
+  const location = definition.location?.trim();
+  const period = definition.timePeriod?.trim();
+  const protagonist = definition.protagonist?.name?.trim();
+  const antagonist = definition.antagonist?.name?.trim();
+  const excerpt = (page.text || '').split('\n').join(' ').slice(0, 220);
+  const parts = [
+    title ? `"${title}" scene ${pageIndex + 1}` : 'Story scene',
+    genre ? `genre: ${genre}` : '',
+    theme ? `theme: ${theme}` : '',
+    location ? `setting: ${location}` : '',
+    period ? `time period: ${period}` : '',
+    protagonist ? `protagonist: ${protagonist}` : '',
+    antagonist ? `antagonist: ${antagonist}` : '',
+    excerpt ? `depict: ${excerpt}` : '',
+  ].filter(Boolean).join(', ');
+  const composition = ', detailed, rich lighting, illustration, square 1:1, no text overlay';
+  return `${parts}${composition}`;
+}
+
+/**
+ * Create a compact loading overlay for image containers with a progress bar.
+ */
+function createImageLoadingOverlay(): { overlay: HTMLElement; barFill: HTMLElement } {
+  const overlay = document.createElement('div');
+  overlay.className = 'image-loading';
+  const bar = document.createElement('div');
+  bar.className = 'image-progress';
+  const barFill = document.createElement('div');
+  barFill.className = 'image-progress__fill';
+  bar.appendChild(barFill);
+  overlay.appendChild(bar);
+  return { overlay, barFill };
+}
+
+/**
+ * Simulate progress to ~92% while work is in-flight; caller finalizes at 100%.
+ */
+function startSimulatedProgress(barFill: HTMLElement): { stop: () => void; set: (pct: number) => void } {
+  // Clear any previous interval attached to this bar to avoid duplicate timers
+  const existingIdRaw = (barFill as HTMLElement & { dataset: DOMStringMap }).dataset.simIntervalId;
+  if (existingIdRaw) {
+    const existingId = Number(existingIdRaw);
+    if (!Number.isNaN(existingId)) {
+      window.clearInterval(existingId);
+    }
+  }
+  // Initialize progress from current width if present to avoid jumps backwards
+  const currentWidth = (barFill.style && typeof barFill.style.width === 'string' && barFill.style.width.trim().endsWith('%'))
+    ? Number(barFill.style.width.replace('%', '').trim())
+    : NaN;
+  let progress = Number.isFinite(currentWidth) ? Math.max(0, Math.min(92, Math.floor(currentWidth))) : 8;
+  const id = window.setInterval(() => {
+    progress = Math.min(92, progress + Math.max(1, Math.floor(Math.random() * 4)));
+    barFill.style.width = `${progress}%`;
+  }, 220);
+  (barFill as HTMLElement & { dataset: DOMStringMap }).dataset.simIntervalId = String(id);
+  return {
+    stop: () => {
+      window.clearInterval(id);
+      // Only clear dataset if it still points to this interval id
+      const current = (barFill as HTMLElement & { dataset: DOMStringMap }).dataset.simIntervalId;
+      if (current === String(id)) {
+        delete (barFill as HTMLElement & { dataset: DOMStringMap }).dataset.simIntervalId;
+      }
+    },
+    set: (pct: number) => { barFill.style.width = `${Math.max(0, Math.min(100, Math.floor(pct))) }%`; },
+  };
+}
+
+/**
+ * Ensure/generate an image for a given story page index, update store + DOM if provided.
+ */
+async function maybeGeneratePageImageIfMissing(pageIndex: number, imageWrapEl?: HTMLElement, imgEl?: HTMLImageElement): Promise<void> {
+  const current = store.getState().story;
+  const structure = current?.structure;
+  const definition = current?.definition;
+  if (!structure || !definition) return;
+  const pages = structure.pages || [];
+  if (pageIndex < 0 || pageIndex >= pages.length) return;
+  const page = pages[pageIndex];
+  const existing = page?.image?.dataUrl || page?.image?.url;
+  const alt = page?.image?.alt || 'Story scene';
+  const cacheKey = getPageKeyById(page.id);
+  // Serve from cache when available
+  const cached = getCachedImageDataUrl(cacheKey);
+  if (cached && imgEl) {
+    let overlay = imageWrapEl?.querySelector('.image-loading') as HTMLElement | null;
+    let barFill = overlay?.querySelector('.image-progress__fill') as HTMLElement | null;
+    if (!overlay || !barFill) {
+      const ui = createImageLoadingOverlay();
+      overlay = ui.overlay;
+      barFill = ui.barFill;
+      if (imageWrapEl) imageWrapEl.appendChild(overlay);
+    }
+    imageWrapEl?.classList.add('loading');
+    const simCached = startSimulatedProgress(barFill!);
+    imgEl.loading = 'lazy';
+    imgEl.setAttribute('decoding', 'async');
+    imgEl.alt = alt;
+    imgEl.src = cached;
+    // Hide loader as soon as a valid src is set
+    imageWrapEl?.classList.remove('loading');
+    if (imgEl.complete && imgEl.naturalHeight !== 0) {
+      simCached.stop();
+      barFill!.style.width = '100%';
+      overlay && window.setTimeout(() => overlay!.remove(), 120);
+      imageWrapEl?.classList.remove('loading');
+      return;
+    }
+    imgEl.onload = () => {
+      simCached.stop();
+      barFill!.style.width = '100%';
+      overlay && window.setTimeout(() => overlay!.remove(), 120);
+      imageWrapEl?.classList.remove('loading');
+    };
+    imgEl.onerror = () => {
+      simCached.stop();
+      overlay?.classList.add('error');
+      window.setTimeout(() => {
+        try { overlay?.remove(); } catch {}
+        imageWrapEl?.classList.remove('loading');
+      }, 220);
+    };
+    try {
+      if (typeof (imgEl as any).decode === 'function') {
+        (imgEl as any).decode().then(() => {
+          simCached.stop();
+          barFill!.style.width = '100%';
+          overlay && window.setTimeout(() => overlay!.remove(), 120);
+          imageWrapEl?.classList.remove('loading');
+        }).catch(() => {
+          // fall back to onload/onerror
+        });
+      }
+    } catch {
+      // ignore decode support issues
+    }
+    return;
+  }
+  // If we already have a URL/dataUrl, just bind it to the DOM img if provided
+  if (existing) {
+    if (imgEl) {
+      // Reuse existing overlay if present, otherwise create one
+      let overlay = imageWrapEl?.querySelector('.image-loading') as HTMLElement | null;
+      let barFill = overlay?.querySelector('.image-progress__fill') as HTMLElement | null;
+      if (!overlay || !barFill) {
+        const ui = createImageLoadingOverlay();
+        overlay = ui.overlay;
+        barFill = ui.barFill;
+        if (imageWrapEl) imageWrapEl.appendChild(overlay);
+      }
+      imageWrapEl?.classList.add('loading');
+      const sim = startSimulatedProgress(barFill!);
+      imgEl.loading = 'lazy';
+      imgEl.setAttribute('decoding', 'async');
+      imgEl.alt = alt;
+      let handled = false;
+      const handleLoaded = () => {
+        if (handled) return;
+        handled = true;
+        sim.stop();
+        barFill!.style.width = '100%';
+        if (overlay) window.setTimeout(() => overlay!.remove(), 180);
+        imageWrapEl?.classList.remove('loading');
+        // Cache if dataUrl; else attempt conversion and persist
+        if (isDataUrl(existing)) {
+          cacheImageDataUrl(cacheKey, existing, page.image?.mimeType);
+        } else if (!page.image?.dataUrl) {
+          fetchUrlAsDataUrl(existing).then(result => {
+            if (!result) return;
+            const updatedPagesConv = pages.slice();
+            updatedPagesConv[pageIndex] = {
+              ...page,
+              image: {
+                ...(page.image || {}),
+                dataUrl: result.dataUrl,
+                mimeType: result.mimeType,
+                alt,
+              } as unknown as StoryPage['image'],
+            };
+            store.updateStory({
+              structure: ({ ...structure, pages: updatedPagesConv } as unknown as StoryStructure),
+            });
+            cacheImageDataUrl(cacheKey, result.dataUrl, result.mimeType);
+          }).catch(() => {});
+        }
+      };
+      const handleError = () => {
+        if (handled) return;
+        handled = true;
+        sim.stop();
+        overlay?.classList.add('error');
+        window.setTimeout(() => {
+          try { overlay?.remove(); } catch {}
+          imageWrapEl?.classList.remove('loading');
+        }, 220);
+      };
+      imgEl.onload = handleLoaded;
+      imgEl.onerror = handleError;
+      imgEl.src = existing;
+      // Hide loader as soon as a valid src is set
+      imageWrapEl?.classList.remove('loading');
+      if (imgEl.complete && imgEl.naturalHeight !== 0) {
+        handleLoaded();
+      }
+      try {
+        if (typeof (imgEl as any).decode === 'function') {
+          (imgEl as any).decode().then(handleLoaded).catch(handleLoaded);
+        }
+      } catch {
+        // ignore
+      }
+    }
+    return;
+  }
+  // Generate via backend using prompt derived from page + definition
+  const prompt = buildScenePromptFromPage(definition, page, pageIndex);
+  // Attach loader UI if DOM provided
+  let overlay: HTMLElement | null = null;
+  let sim: { stop: () => void; set: (pct: number) => void } | null = null;
+  let barFill: HTMLElement | null = null;
+  if (imageWrapEl && imgEl) {
+    // Reuse existing overlay if present, otherwise create one
+    overlay = imageWrapEl.querySelector('.image-loading') as HTMLElement | null;
+    barFill = overlay?.querySelector('.image-progress__fill') as HTMLElement | null;
+    if (!overlay || !barFill) {
+      const ui = createImageLoadingOverlay();
+      overlay = ui.overlay;
+      barFill = ui.barFill;
+      imageWrapEl.appendChild(overlay);
+    }
+    imageWrapEl.classList.add('loading');
+    sim = startSimulatedProgress(barFill!);
+  }
+  try {
+    const resp = await fetch('/api/agents/image/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt }),
+    });
+    if (!resp.ok) {
+      throw new Error(`Page image request failed (${resp.status})`);
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data: any = await resp.json();
+    const mimeType: string = typeof data?.mimeType === 'string' && data.mimeType ? data.mimeType : 'image/png';
+    const base64: string | undefined = data?.imageBase64;
+    if (!base64 || typeof base64 !== 'string' || base64.length === 0) {
+      throw new Error('Invalid page image data returned');
+    }
+    const dataUrl = `data:${mimeType};base64,${base64}`;
+    // Persist into store
+    const updatedPages = pages.slice();
+    updatedPages[pageIndex] = {
+      ...page,
+      image: {
+        ...(page.image || {}),
+        dataUrl,
+        mimeType,
+        prompt,
+        alt,
+      } as unknown as StoryPage['image'],
+    };
+    store.updateStory({
+      structure: ({ ...structure, pages: updatedPages } as unknown as StoryStructure),
+    });
+    cacheImageDataUrl(cacheKey, dataUrl, mimeType);
+    // Bind to DOM if applicable
+    if (imgEl) {
+      imgEl.loading = 'lazy';
+      imgEl.setAttribute('decoding', 'async');
+      imgEl.alt = alt;
+      let handled = false;
+      const handleLoaded = () => {
+        if (handled) return;
+        handled = true;
+        if (sim && barFill) {
+          sim.stop();
+          barFill.style.width = '100%';
+        }
+        if (overlay) {
+          window.setTimeout(() => overlay!.remove(), 180);
+        }
+        imageWrapEl?.classList.remove('loading');
+      };
+      const handleError = () => {
+        if (handled) return;
+        handled = true;
+        if (sim) sim.stop();
+        if (overlay) overlay.classList.add('error');
+        window.setTimeout(() => {
+          try { overlay?.remove(); } catch {}
+          imageWrapEl?.classList.remove('loading');
+        }, 220);
+      };
+      imgEl.onload = handleLoaded;
+      imgEl.onerror = handleError;
+      imgEl.src = dataUrl;
+      // Hide loader as soon as a valid src is set
+      imageWrapEl?.classList.remove('loading');
+      if (imgEl.complete && imgEl.naturalHeight !== 0) {
+        handleLoaded();
+      }
+      try {
+        if (typeof (imgEl as any).decode === 'function') {
+          (imgEl as any).decode().then(handleLoaded).catch(handleLoaded);
+        }
+      } catch {
+        // ignore
+      }
+    }
+  } catch (err) {
+    if (overlay) {
+      overlay.classList.add('error');
+      window.setTimeout(() => {
+        try { overlay.remove(); } catch {}
+        imageWrapEl?.classList.remove('loading');
+      }, 240);
+    } else {
+      imageWrapEl?.classList.remove('loading');
+    }
+    throw err;
+  }
+}
+
+/**
+ * Given a DOM page index (includes cover at 0), return data page index (0-based).
+ */
+function mapDomToDataIndex(domIndex: number): number {
+  return Math.max(0, domIndex - 1);
+}
+
+/**
+ * Ensure the image for the given DOM page element is loaded/generated.
+ */
+async function ensureDomPageImageLoaded(domPageEl: HTMLElement, domIndex: number): Promise<void> {
+  if (!domPageEl) return;
+  if (domPageEl.dataset.page !== 'story') return;
+  const imageWrap = domPageEl.querySelector<HTMLElement>('.story-image');
+  const imgEl = imageWrap?.querySelector('img') as HTMLImageElement | null;
+  if (!imageWrap || !imgEl) return;
+  // Guard: if this image is already loading or loaded, avoid starting a second loader
+  const hasOverlay = !!imageWrap.querySelector('.image-loading');
+  const isLoadingClass = imageWrap.classList.contains('loading');
+  const hasSrc = typeof imgEl.src === 'string' && imgEl.src.length > 0;
+  const isLoaded = imgEl.complete && imgEl.naturalHeight !== 0;
+  const isStillLoading = hasSrc && !isLoaded;
+  if (hasOverlay || isLoadingClass || isLoaded || isStillLoading) {
+    return;
+  }
+  const dataIndex = mapDomToDataIndex(domIndex);
+  await maybeGeneratePageImageIfMissing(dataIndex, imageWrap, imgEl);
+}
+
+/**
+ * While on the front cover, begin warming the first page image and back cover.
+ */
+async function warmupImagesOnCover(): Promise<void> {
+  try {
+    const current = store.getState().story;
+    const structure = current?.structure;
+    if (!structure) return;
+    // Preload/generate first page image
+    if (structure.pages && structure.pages.length > 0) {
+      await maybeGeneratePageImageIfMissing(0);
+    }
+    // Preload/generate back cover image
+    // Show a lightweight overlay while preparing the final back cover in the background
+    const overlay = createInlineLoadingOverlay('Preparing back cover...');
+    try {
+      await maybeGenerateBackCoverSummaryIfMissing();
+      setOverlayMessage(overlay, 'Preparing back cover art...');
+      await maybeGenerateBackCoverImageIfMissing();
+    } finally {
+      removeInlineLoadingOverlay(overlay);
+    }
+  } catch {
+    // best-effort; ignore
   }
 }
 
@@ -1035,7 +1900,10 @@ function delay(ms: number): Promise<void> {
  * Flip the final page, then replace background back with back cover content
  * No next page will appear - right side stays empty
  */
-function flipToBackCover(): void {
+async function flipToBackCover(): Promise<void> {
+  // Ensure any narration is stopped before flipping to back cover
+  stopCoverAudio();
+  stopPageAudio();
   const pagesNow = getPages();
   const currentPage = pagesNow[currentPageIndex];
   
@@ -1046,11 +1914,11 @@ function flipToBackCover(): void {
   
   // Get the back cover image URL to use for the flip animation
   const backCoverImage = document.getElementById('backCoverImage') as HTMLImageElement;
-  const backCoverImageUrl = backCoverImage?.src || '';
+  let backCoverImageUrl = backCoverImage?.src || '';
   
   // If back cover image not set yet, set it up first
   if (!backCoverImageUrl) {
-    setupBackCover();
+    await setupBackCover();
     // Re-get the URL after setup
     const updatedBackCoverImage = document.getElementById('backCoverImage') as HTMLImageElement;
     const updatedBackCoverImageUrl = updatedBackCoverImage?.src || '';
@@ -1117,6 +1985,9 @@ function flipToBackCover(): void {
 
 // Flip to next page
 function flipToNextPage(): void {
+  // Stop any ongoing narration before flipping
+  stopCoverAudio();
+  stopPageAudio();
   console.log('Flipping to next page');
   const pagesNow = getPages();
   if (currentPageIndex >= pagesNow.length - 1) {
@@ -1141,6 +2012,11 @@ function flipToNextPage(): void {
     currentPage.classList.add('flipped'); // Keep page visible in flipped state
     nextPage.classList.remove('behind');
     nextPage.classList.add('active');
+    // Ensure the newly active page image is loaded/generated
+    ensureDomPageImageLoaded(nextPage, currentPageIndex + 1).catch(() => {});
+    // Start narration for the newly active page
+    const nextDomIndex = currentPageIndex + 1;
+    void startPageNarrationForDomIndex(nextDomIndex);
     
     currentPageIndex++;
   }, 1200); // Match animation duration
@@ -1205,10 +2081,17 @@ async function generateNextPageAndFlip(selectedOptionId: string, inlineOverlay?:
     bookContainer = document.querySelector<HTMLElement>('.book-container');
   }
   if (bookContainer) {
-    const el = buildStoryPageElement(nextPage, false);
+    // Determine if the appended page should be the final page based on configuration
+    const cfg = store.getState().story?.configuration;
+    const policy = getPagePolicy(cfg?.length);
+    const isFinalNext = nextIndex >= (policy.maxPages - 1);
+    const el = buildStoryPageElement(nextPage, isFinalNext);
     bookContainer.appendChild(el);
     // Attach handlers on newly added buttons
     attachOptionHandlers(el);
+    // Begin loading the new page's image in the background
+    const domIndex = getPages().length - 1;
+    ensureDomPageImageLoaded(el as HTMLElement, domIndex).catch(() => {});
   }
   // Flip only after success
   flipToNextPage();
@@ -1388,6 +2271,17 @@ async function handleOptionClick(event: Event): Promise<void> {
     }, 500);
   } else {
     // Non-conversation page: generate the next page from the selected option, then flip
+    // If this is a final-page option, go directly to back cover
+    if (isLastOption) {
+      const overlay = createInlineLoadingOverlay('Finalizing your book...');
+      try {
+        await setupBackCover();
+        flipToBackCover();
+      } finally {
+        removeInlineLoadingOverlay(overlay);
+      }
+      return;
+    }
     const selectedOptionId = button.dataset.option || '';
     console.log('[Story] Showing loader for next page');
     const overlay = createInlineLoadingOverlay('Generating next page...');
@@ -1558,3 +2452,64 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 });
+
+/**
+ * Derive page policy from configuration length
+ */
+function getPagePolicy(length: 'small' | 'medium' | 'long' | undefined): { minPages: number; maxPages: number } {
+  switch (length) {
+    case 'small':
+      return { minPages: 3, maxPages: 5 };
+    case 'long':
+      return { minPages: 10, maxPages: 16 };
+    case 'medium':
+    default:
+      return { minPages: 6, maxPages: 10 };
+  }
+}
+
+/**
+ * Generate and persist a back cover summary via backend if missing
+ */
+async function maybeGenerateBackCoverSummaryIfMissing(): Promise<void> {
+  const current = store.getState().story;
+  const definition = current?.definition;
+  const structure = current?.structure;
+  if (!definition) return;
+  const existing = structure?.backCover?.summary;
+  if (existing && existing.trim().length > 0) return;
+  try {
+    const cfg = current?.configuration;
+    const resp = await fetch('/api/story/summary', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        definition,
+        pages: (structure?.pages || []).map(p => ({ id: p.id, text: p.text })),
+        configuration: cfg,
+      }),
+    });
+    if (!resp.ok) {
+      throw new Error(`Back cover summary request failed (${resp.status})`);
+    }
+    const data = await resp.json();
+    const summary: string = typeof data?.summary === 'string' ? data.summary : '';
+    if (!summary || summary.trim().length === 0) return;
+    const updated = {
+      ...(structure || { frontCover: {}, pages: [] }),
+      backCover: {
+        ...(structure?.backCover || {}),
+        summary,
+      },
+    } as unknown as StoryStructure;
+    store.updateStory({ structure: updated });
+    // If present in DOM, fill immediately
+    const summaryText = document.getElementById('storySummary');
+    if (summaryText) {
+      summaryText.textContent = summary;
+    }
+  } catch {
+    // fall back silently
+  }
+}
+

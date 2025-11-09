@@ -401,6 +401,37 @@
           <div id="sdRenderedPage" class="log-area"></div>
         </div>
       </section>
+      
+      <section class="card">
+        <h2>Back Cover Summary (LLM)</h2>
+        <div class="field-group">
+          <label for="sumDefinitionJson">StoryDefinition JSON</label>
+          <textarea
+            id="sumDefinitionJson"
+            rows="8"
+            spellcheck="false"
+            placeholder='Paste a StoryDefinition object (or use the one above)'
+          ></textarea>
+          <p class="helper-text">If empty, will attempt to reuse the definition from the section above.</p>
+        </div>
+        <div class="field-group">
+          <label for="sumPagesJson">Optional Pages (StoryPage[] JSON, only id + text used)</label>
+          <textarea
+            id="sumPagesJson"
+            rows="6"
+            spellcheck="false"
+            placeholder='[{"id":"p1","text":"Opening scene..."},{"id":"p2","text":"Conflict rises..."}]'
+          ></textarea>
+        </div>
+        <div class="button-row">
+          <button id="sumGenerateButton" class="primary" type="button">Generate Back Cover Summary (/api/story/summary)</button>
+        </div>
+        <div class="panel">
+          <h3>Summary JSON</h3>
+          <div id="sumStatus" class="helper-text">Awaiting request…</div>
+          <pre id="sumOut">—</pre>
+        </div>
+      </section>
 
       <section class="card">
         <h2>Gemini Images (Direct) Playground</h2>
@@ -718,6 +749,48 @@
             pre.textContent = JSON.stringify(page, null, 2);
             status.textContent = "OK";
             renderPage(page);
+          } catch (e) {
+            status.textContent = "Error: " + (e && e.message ? e.message : String(e));
+          }
+        });
+
+        // Generate Back Cover Summary
+        byId("sumGenerateButton").addEventListener("click", async () => {
+          const base = getBase();
+          const status = byId("sumStatus");
+          const out = byId("sumOut");
+          status.textContent = "Generating summary…";
+          try {
+            let defText = (byId("sumDefinitionJson").value || "").trim();
+            if (!defText) {
+              defText = (byId("sdDefinitionJson").value || "").trim();
+            }
+            if (!defText) {
+              status.textContent = "Error: Provide a StoryDefinition JSON.";
+              return;
+            }
+            let definition;
+            try {
+              definition = JSON.parse(defText);
+            } catch {
+              status.textContent = "Error: Invalid StoryDefinition JSON.";
+              return;
+            }
+            let pages = [];
+            const pagesRaw = (byId("sumPagesJson").value || "").trim();
+            if (pagesRaw) {
+              try {
+                const parsed = JSON.parse(pagesRaw);
+                if (Array.isArray(parsed)) {
+                  pages = parsed.map(p => ({ id: p?.id, text: p?.text })).filter(p => typeof p.id === "string" && typeof p.text === "string");
+                }
+              } catch {
+                // ignore bad pages; continue with none
+              }
+            }
+            const result = await postJson(`${base}/api/story/summary`, { definition, pages });
+            out.textContent = JSON.stringify(result, null, 2);
+            status.textContent = "OK";
           } catch (e) {
             status.textContent = "Error: " + (e && e.message ? e.message : String(e));
           }

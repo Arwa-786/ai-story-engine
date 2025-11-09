@@ -252,9 +252,7 @@ createStoryBtn.addEventListener('click', async () => {
       const frontCover = {
         title: current!.definition!.title,
         tagline: current!.definition!.tagline,
-        image: current!.definition!.image
-          ? { alt: current!.definition!.image.alt }
-          : undefined,
+        image: current!.definition!.image, // carry prompt/alt forward
       };
       store.updateStory({
         structure: ({ frontCover, pages: [firstPage] } as unknown as StoryStructure),
@@ -272,7 +270,116 @@ createStoryBtn.addEventListener('click', async () => {
     }
   }
 
+  // Attempt cover image generation before navigating
+  let coverGenerationAttempted = false;
+  let coverGeneratedOk = Boolean(
+    store.getState().story?.structure?.frontCover?.image?.dataUrl ||
+    store.getState().story?.structure?.frontCover?.image?.url
+  );
+  {
+    const current2 = store.getState().story;
+    const def = current2?.definition;
+    const existingCover =
+      current2?.structure?.frontCover?.image?.dataUrl ||
+      current2?.structure?.frontCover?.image?.url;
+    if (def && !existingCover) {
+      coverGenerationAttempted = true;
+      const overlay3 = createLoadingOverlay('Generating cover art...');
+      let progress3 = 10;
+      const barFill3 = overlay3.querySelector('#story-loading-bar-fill') as HTMLElement | null;
+      const intervalId3 = window.setInterval(() => {
+        if (!barFill3) return;
+        progress3 = Math.min(92, progress3 + Math.max(1, Math.floor(Math.random() * 5)));
+        barFill3.style.width = `${progress3}%`;
+      }, 240);
+      try {
+        const prompt =
+          def.image?.prompt?.trim() ||
+          buildCoverPromptFromDefinition(def);
+        if (prompt && prompt.length > 0) {
+          const resp = await fetch('/api/story/cover-image', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt }),
+          });
+          if (resp.ok) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const data: any = await resp.json();
+            const mimeType: string = typeof data?.mimeType === 'string' && data.mimeType ? data.mimeType : 'image/png';
+            const base64: string | undefined = data?.imageBase64;
+            if (base64 && typeof base64 === 'string' && base64.length > 0) {
+              const dataUrl = `data:${mimeType};base64,${base64}`;
+              const structure = current2?.structure || { frontCover: { title: def.title, tagline: def.tagline }, pages: [] } as unknown as StoryStructure;
+              const updatedFront = {
+                ...structure.frontCover,
+                image: {
+                  ...(structure.frontCover.image || {}),
+                  dataUrl,
+                  mimeType,
+                  prompt,
+                  alt: def.title ? `${def.title} - Cover Image` : 'Story Cover',
+                },
+              };
+              store.updateStory({
+                structure: ({ ...structure, frontCover: updatedFront } as unknown as StoryStructure),
+              });
+              coverGeneratedOk = true;
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Cover image generation failed:', err);
+      } finally {
+        window.clearInterval(intervalId3);
+        if (barFill3) {
+          barFill3.style.width = '100%';
+          await new Promise(resolve => setTimeout(resolve, 180));
+        }
+        removeLoadingOverlay(overlay3);
+      }
+    }
+  }
+
   // Navigate to story page (after first page attempt)
+  if (coverGenerationAttempted) {
+    const stateNow = store.getState().story;
+    const hasCoverNow =
+      stateNow?.structure?.frontCover?.image?.dataUrl ||
+      stateNow?.structure?.frontCover?.image?.url;
+    if (!coverGeneratedOk && !hasCoverNow) {
+      alert('Failed to generate cover art. Please try again.');
+      return;
+    }
+  }
   window.location.href = '/views/story.html';
 });
+
+
+function buildCoverPromptFromDefinition(definition: StoryDefinition): string {
+  const title = definition.title?.trim();
+  const genre = definition.genre?.trim();
+  const theme = definition.theme?.trim();
+  const location = definition.location?.trim();
+  const period = definition.timePeriod?.trim();
+  const tagline = definition.tagline?.trim();
+  const world = definition.worldDescription?.trim();
+  const protagonist = definition.protagonist?.name?.trim();
+  const antagonist = definition.antagonist?.name?.trim();
+  const base = [
+    title ? `Book cover for "${title}"` : 'Book cover',
+    genre ? `genre: ${genre}` : '',
+    theme ? `theme: ${theme}` : '',
+    location ? `setting: ${location}` : '',
+    period ? `time period: ${period}` : '',
+    protagonist ? `featuring protagonist ${protagonist}` : '',
+    antagonist ? `and antagonist ${antagonist}` : '',
+  ]
+    .filter(Boolean)
+    .join(', ');
+  const mood = tagline ? `, mood: ${tagline}` : '';
+  const worldHint = world ? `, world: ${world}` : '';
+  const composition =
+    ', cinematic, detailed, high contrast, sharp focus, rich lighting, vertical 3:4, cover art';
+  return `${base}${mood}${worldHint}${composition}`;
+}
 

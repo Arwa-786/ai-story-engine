@@ -14,6 +14,26 @@ export interface GoogleDirectTextRequest {
   cfGatewayToken?: string; // if omitted, taken from process.env.CLOUDFLARE_API_KEY
 }
 
+function redactToken(token?: string): string {
+  if (!token) return "";
+  const trimmed = token.trim();
+  if (trimmed.length <= 8) return "***";
+  return `${trimmed.slice(0, 4)}...${trimmed.slice(-4)}`;
+}
+
+function sanitizeHeadersForLog(headers: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(headers)) {
+    const key = k.toLowerCase();
+    if (key === "x-goog-api-key" || key === "cf-aig-authorization" || key === "authorization") {
+      out[k] = redactToken(v.replace(/^Bearer\s+/i, ""));
+    } else {
+      out[k] = v;
+    }
+  }
+  return out;
+}
+
 /**
  * Calls Cloudflare AI Gateway "provider direct" endpoint for Google AI Studio.
  * Mirrors the working curl:
@@ -63,6 +83,13 @@ export async function generateTextViaCloudflareGoogleDirect(
     ],
   };
 
+  console.debug("[gatewayClient] outgoing request", {
+    method: "POST",
+    url,
+    headers: sanitizeHeadersForLog(headers),
+    body,
+  });
+
   const response = await fetch(url, {
     method: "POST",
     headers,
@@ -71,10 +98,20 @@ export async function generateTextViaCloudflareGoogleDirect(
 
   if (!response.ok) {
     const errText = await safeReadText(response);
+    console.error("[gatewayClient] non-OK response", {
+      status: response.status,
+      statusText: response.statusText,
+      errorText: errText,
+    });
     throw new Error(`Cloudflare Gateway (google direct) error ${response.status}: ${errText}`);
   }
 
   const payload = (await response.json()) as GoogleDirectResponse;
+  console.info("[gatewayClient] response OK", {
+    status: response.status,
+    modelVersion: payload?.modelVersion,
+    responseId: payload?.responseId,
+  });
   const extracted = extractGoogleText(payload);
   if (!extracted) {
     throw new Error("Cloudflare Gateway (google direct) returned no text content.");

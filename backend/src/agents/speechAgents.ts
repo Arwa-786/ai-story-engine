@@ -60,6 +60,10 @@ function getVoiceIdForGenre(genre?: string): string {
 
 // This is the function you will call from index.ts
 export async function generateSpeech(text: string, env: Env, genre?: string): Promise<Response> {
+  console.debug("[speechAgent] generateSpeech called", {
+    textLength: text?.length ?? 0,
+    genre,
+  });
   // Get the appropriate voice ID based on genre
   const voiceId = getVoiceIdForGenre(genre);
   
@@ -76,29 +80,57 @@ export async function generateSpeech(text: string, env: Env, genre?: string): Pr
     'xi-api-key': env.ELEVENLABS_TOKEN,
   };
 
-  // Make the API call to the AI Gateway
-  const response = await fetch(gatewayUrl, {
+  const safeHeaders = {
+    ...headers,
+    'xi-api-key': headers['xi-api-key'] ? `${headers['xi-api-key'].slice(0, 4)}...${headers['xi-api-key'].slice(-4)}` : '',
+  };
+  console.debug("[speechAgent] outgoing ElevenLabs request", {
     method: 'POST',
-    headers: headers,
-    body: JSON.stringify(body),
+    url: gatewayUrl,
+    headers: safeHeaders,
+    body,
   });
-
-  // Check if the API call was successful
-  if (!response.ok) {
-    const errorText = await response.text();
-    // Return a clear error with proper content type
-    return new Response(`ElevenLabs API Error: ${errorText}`, { 
-      status: response.status || 500,
+  try {
+    // Make the API call to the AI Gateway
+    const response = await fetch(gatewayUrl, {
+      method: 'POST',
+      headers: headers,
+      body: JSON.stringify(body),
+    });
+  
+    // Check if the API call was successful
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("[speechAgent] ElevenLabs API responded with error", {
+        status: response.status,
+        statusText: response.statusText,
+        errorText,
+        voiceId,
+      });
+      // Return a clear error with proper content type
+      return new Response(`ElevenLabs API Error: ${errorText}`, { 
+        status: response.status || 500,
+        headers: {
+          'Content-Type': 'text/plain',
+        },
+      });
+    }
+  
+    console.info("[speechAgent] speech generated successfully", { voiceId });
+    // Send the audio stream directly back
+    return new Response(response.body, {
       headers: {
-        'Content-Type': 'text/plain',
+        'Content-Type': 'audio/mpeg',
       },
     });
+  } catch (err) {
+    console.error("[speechAgent] generateSpeech failed", {
+      voiceId,
+      errorMessage: err instanceof Error ? err.message : String(err),
+    });
+    return new Response("ElevenLabs API Request Failed", {
+      status: 500,
+      headers: { 'Content-Type': 'text/plain' },
+    });
   }
-
-  // Send the audio stream directly back
-  return new Response(response.body, {
-    headers: {
-      'Content-Type': 'audio/mpeg',
-    },
-  });
 }

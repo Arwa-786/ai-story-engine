@@ -11,14 +11,14 @@ export async function generateNextStoryPage(
   previousOption?: OptionObject,
   configuration?: StoryConfiguration,
 ): Promise<StoryPage> {
-  const storyLength = (configuration?.length ?? "medium") as "short" | "medium" | "long";
+  const storyLength = (configuration?.length ?? "medium") as "small" | "medium" | "long";
   const storyDensity = (configuration?.density ?? "medium") as "short" | "medium" | "dense";
   let minPages = 6;
   let maxPages = 10;
   switch (storyLength) {
-    case "short":
-      minPages = 3;
-      maxPages = 5;
+    case "small":
+      minPages = 2;
+      maxPages = 6;
       break;
     case "medium":
       minPages = 6;
@@ -30,27 +30,30 @@ export async function generateNextStoryPage(
       break;
   }
   const isFinalPage = stepIndex >= maxPages - 1;
+  const encourageFinalization = stepIndex >= minPages - 1 && !isFinalPage;
   let densityGuidance: string;
   switch (storyDensity) {
     case "short":
       densityGuidance = [
-        "- STRICT: Write 1–4 sentences in a SINGLE paragraph.",
+        "- STRICT: Write 1–2 sentences in a SINGLE paragraph.",
         "- Do NOT include blank lines.",
         "- Do NOT exceed 4 sentences.",
+        "- Use 1-3 words for options."
       ].join("\n");
       break;
     case "medium":
       densityGuidance = [
-        "- STRICT: Write 1–2 paragraphs.",
+        "- STRICT: Write 1 paragraph.",
         "- Separate paragraphs with exactly ONE blank line.",
         "- Keep each paragraph concise (2–5 sentences).",
         "- Do NOT exceed 2 paragraphs.",
+        "- Prefer shorter options. Start using full sentences for options."
       ].join("\n");
       break;
     case "dense":
     default:
       densityGuidance = [
-        "- STRICT: Write 2–4 paragraphs.",
+        "- STRICT: Write 1–3 paragraphs.",
         "- Separate paragraphs with exactly ONE blank line.",
         "- Keep each paragraph concise (2–5 sentences).",
         "- Do NOT exceed 4 paragraphs.",
@@ -97,7 +100,7 @@ export async function generateNextStoryPage(
     "Guidance:",
     "- `stepIndex` is the zero-based page number.",
     "- Obey StoryConfiguration.length using the following total page ranges:",
-    "  - short: 3–5 pages total",
+    "  - small: 3–5 pages total",
     "  - medium: 6–10 pages total",
     "  - long: 10–16 pages total",
     "- Use stepIndex to pace the narrative (rising tension, midpoint, escalation, resolution).",
@@ -120,12 +123,16 @@ export async function generateNextStoryPage(
     isFinalPage
       ? "- This is the final page. Conclude decisively using one of StoryDefinition.endingOptions as inspiration; do not leave a cliffhanger."
       : "- Do not end the story yet; leave meaningful directions for the next page.",
+    encourageFinalization
+      ? "- You have reached at least the minimum pages for the configured length; begin converging towards a resolution and consider concluding soon if it feels natural."
+      : "",
     isFinalPage
       ? "- Present a single clear option to finish (e.g., 'Finish') with { type: 'goToNextPage' }."
       : "- Present 2–3 options for the next decision.",
     "",
     "Hard Constraints:",
     `- Never exceed the maximum total pages for the configured length (maxPages=${maxPages}); if stepIndex >= maxPages-1 you MUST end now.`,
+    `- Aim to reach a satisfying ending on or after minPages=${minPages}; escalate pacing after this point.`,
     "- Enforce the density constraints exactly (paragraph and sentence counts).",
   ].join("\n");
 
@@ -135,7 +142,7 @@ export async function generateNextStoryPage(
       stepIndex,
       previousOption: previousOption ?? null,
       configuration: configuration ?? null,
-      pagePolicy: { minPages, maxPages, isFinalPage },
+      pagePolicy: { minPages, maxPages, isFinalPage, encourageFinalization, stepIndex },
     },
     instructions,
   );

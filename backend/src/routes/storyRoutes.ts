@@ -1,11 +1,25 @@
 import express, { type Request, type Response, type Router } from "express";
 import { generateStoryDefinitionFromConfiguration } from "../generators/promptGenerator.js";
 import { generateNextStoryPage } from "../generators/storylineGenerator.js";
-import { type StoryConfiguration, type StoryDefinition, type OptionObject } from "../types/frontend.js";
+import { type StoryConfiguration, type StoryDefinition, type OptionObject, type StoryPage } from "../types/frontend.js";
 import { generateImageFromPrompt } from "../agents/imageAgent.js";
+import { getCachedImage, setCachedImage } from "../utils/imageCache.js";
+import { generateBackCoverSummary } from "../generators/summaryGenerator.js";
 
 export function createStoryRouter(): Router {
   const router: Router = express.Router();
+
+  function resolvePagePolicy(length: StoryConfiguration["length"] | undefined): { minPages: number; maxPages: number } {
+    switch (length) {
+      case "small":
+        return { minPages: 3, maxPages: 5 };
+      case "long":
+        return { minPages: 10, maxPages: 16 };
+      case "medium":
+      default:
+        return { minPages: 6, maxPages: 10 };
+    }
+  }
 
   // Generate a StoryDefinition document from StoryConfiguration
   router.post("/define", async (req: Request, res: Response) => {
@@ -73,6 +87,11 @@ export function createStoryRouter(): Router {
         const n = Number.parseInt(stepIndexRaw, 10);
         if (Number.isInteger(n) && n >= 0) stepIndex = n;
       }
+      // Enforce configured max pages to avoid stepping past the end
+      const policy = resolvePagePolicy(configuration?.length);
+      if (stepIndex >= policy.maxPages) {
+        stepIndex = policy.maxPages - 1;
+      }
 
       const page = await generateNextStoryPage(
         definition as StoryDefinition,
@@ -84,6 +103,24 @@ export function createStoryRouter(): Router {
     } catch (err) {
       console.error("Error generating StoryPage:", err);
       return res.status(502).json({ error: "Failed to generate StoryPage." });
+    }
+  });
+
+  // Generate a back cover summary from definition (+ optional pages)
+  router.post("/summary", async (req: Request, res: Response) => {
+    const body = req.body ?? {};
+    const definition = (body as { definition?: StoryDefinition }).definition;
+    const pages = (body as { pages?: StoryPage[] }).pages ?? [];
+    const configuration = (body as { configuration?: StoryConfiguration }).configuration ?? undefined;
+    if (!definition || typeof definition !== "object") {
+      return res.status(400).json({ error: "Invalid payload. Expect { definition, pages?, configuration? }" });
+    }
+    try {
+      const result = await generateBackCoverSummary(definition, Array.isArray(pages) ? pages : [], configuration);
+      return res.json(result);
+    } catch (err) {
+      console.error("Error generating back cover summary:", err);
+      return res.status(502).json({ error: "Failed to generate back cover summary." });
     }
   });
 
@@ -102,9 +139,27 @@ export function createStoryRouter(): Router {
     }
 
     try {
+      // Check in-memory cache first
+      const cached = getCachedImage(prompt, modelId);
+      if (cached) {
+        res.setHeader("X-Cache", "HIT");
+        return res.status(200).json({
+          modelId: cached.modelId || modelId || "",
+          elapsedMs: 0,
+          mimeType: cached.mimeType,
+          imageBase64: cached.imageBase64,
+        });
+      }
+      // Miss: generate and persist to cache
       const started = performance.now();
-      const result = await generateImageFromPrompt(prompt, { modelId });
+      const options: { modelId?: string } = {};
+      if (typeof modelId === "string" && modelId.trim().length > 0) {
+        options.modelId = modelId.trim();
+      }
+      const result = await generateImageFromPrompt(prompt, options);
       const elapsedMs = Math.round(performance.now() - started);
+      setCachedImage(prompt, modelId, result.imageBase64, result.mimeType);
+      res.setHeader("X-Cache", "MISS");
       return res.status(200).json({
         modelId: result.modelId,
         elapsedMs,

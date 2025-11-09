@@ -201,6 +201,7 @@ function loadStoryMetadata(): void {
       'An Untitled Story';
 
     const resolvedSubtitle =
+      story?.definition?.tagline?.trim() ||
       story?.structure?.frontCover?.tagline ||
       coverSubtitleElement?.textContent?.trim() ||
       existingMetadata?.subtitle ||
@@ -620,10 +621,11 @@ function buildStoryPageElement(pageData: StoryPage, isFinal: boolean): HTMLEleme
 
 function buildDefaultStructure(): StoryStructure {
   let title = store.getState().story?.definition?.title?.trim() || 'An Untitled Story';
+  let tagline = store.getState().story?.definition?.tagline?.trim() || 'An AI Generated Adventure';
   return {
     frontCover: {
       title,
-      tagline: 'An AI Generated Adventure',
+      tagline,
     },
     pages: [
       {

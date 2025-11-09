@@ -56,13 +56,21 @@ function createLoadingOverlay(message: string): HTMLElement {
   panel.style.alignItems = 'center';
   panel.style.gap = '12px';
 
-  const spinner = document.createElement('div');
-  spinner.style.width = '28px';
-  spinner.style.height = '28px';
-  spinner.style.border = '3px solid #e5e7eb';
-  spinner.style.borderTopColor = '#111827';
-  spinner.style.borderRadius = '50%';
-  spinner.style.animation = 'storySpinner 0.8s linear infinite';
+  const barWrap = document.createElement('div');
+  barWrap.id = 'story-loading-bar';
+  barWrap.style.width = '100%';
+  barWrap.style.height = '10px';
+  barWrap.style.background = '#f3f4f6';
+  barWrap.style.borderRadius = '999px';
+  barWrap.style.overflow = 'hidden';
+  const barFill = document.createElement('div');
+  barFill.id = 'story-loading-bar-fill';
+  barFill.style.width = '8%';
+  barFill.style.height = '100%';
+  barFill.style.background = '#111827';
+  barFill.style.transition = 'width 220ms ease';
+  barFill.style.borderRadius = '999px';
+  barWrap.appendChild(barFill);
 
   const text = document.createElement('div');
   text.id = 'story-loading-message';
@@ -72,19 +80,7 @@ function createLoadingOverlay(message: string): HTMLElement {
   text.style.color = '#111827';
   text.style.textAlign = 'center';
 
-  // Inject keyframes once
-  if (!document.getElementById('story-loading-styles')) {
-    const style = document.createElement('style');
-    style.id = 'story-loading-styles';
-    style.textContent = `
-@keyframes storySpinner { 
-  0% { transform: rotate(0deg); } 
-  100% { transform: rotate(360deg); } 
-}`;
-    document.head.appendChild(style);
-  }
-
-  panel.appendChild(spinner);
+  panel.appendChild(barWrap);
   panel.appendChild(text);
   overlay.appendChild(panel);
   document.body.appendChild(overlay);
@@ -113,12 +109,14 @@ function generateId(): string {
 }
 
 async function fetchStoryDefinition(configuration: StoryConfiguration): Promise<StoryDefinition> {
-  // Placeholder endpoint for backend story definition generation
-  // Replace with your actual route when implemented
-  const response = await fetch('/api/story/definition', {
+  const response = await fetch('/api/story/define', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ configuration }),
+    body: JSON.stringify({
+      length: configuration.length,
+      density: configuration.density,
+      description: configuration.description,
+    }),
   });
 
   if (!response.ok) {
@@ -195,6 +193,14 @@ createStoryBtn.addEventListener('click', async () => {
 
   // Show loading overlay while we prepare/generate the story definition
   const overlay = createLoadingOverlay('Creating your story...');
+  // Indeterminate loading bar simulation with soft cap at 90%
+  let progress = 8;
+  const barFill = overlay.querySelector('#story-loading-bar-fill') as HTMLElement | null;
+  const intervalId = window.setInterval(() => {
+    if (!barFill) return;
+    progress = Math.min(90, progress + Math.max(1, Math.floor(Math.random() * 5)));
+    barFill.style.width = `${progress}%`;
+  }, 240);
   try {
     updateLoadingMessage(overlay, 'Generating story definition...');
     // Fetch the StoryDefinition from backend (will be implemented server-side)
@@ -204,6 +210,12 @@ createStoryBtn.addEventListener('click', async () => {
     console.warn('Story definition not available yet, continuing with initial data:', error);
     store.updateStory({ status: 'pending' });
   } finally {
+    window.clearInterval(intervalId);
+    if (barFill) {
+      barFill.style.width = '100%';
+      // Briefly show full bar for nicer UX
+      await new Promise(resolve => setTimeout(resolve, 180));
+    }
     removeLoadingOverlay(overlay);
   }
 

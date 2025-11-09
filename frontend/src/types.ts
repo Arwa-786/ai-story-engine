@@ -71,6 +71,7 @@ export interface StoryDefinition {
  * Structured, render-ready story model ("Story Step (index)")
  */
 export interface ImageObject {
+  url?: string;
   alt?: string;
   prompt?: string;
 }
@@ -106,7 +107,17 @@ export interface BackCover {
   image?: ImageObject;
 }
 
+export interface FrontCover {
+  title: string;
+  tagline: string;
+  image?: {
+    url?: string;
+    alt?: string;
+  };
+}
+
 export interface StoryStructure {
+  frontCover: FrontCover;
   pages: StoryPage[];
   backCover: BackCover;
 }

@@ -2,7 +2,7 @@
  * Story Creation Page Entry Point
  */
 
-import type { StoryConfiguration, Story, StoryDefinition } from './types';
+import type { StoryConfiguration, Story, StoryDefinition, StoryPage, StoryStructure } from './types';
 import { store } from './story';
 
 // Get DOM elements with explicit validation for critical inputs
@@ -126,6 +126,19 @@ async function fetchStoryDefinition(configuration: StoryConfiguration): Promise<
   return data;
 }
 
+async function fetchFirstStoryPage(definition: StoryDefinition): Promise<StoryPage> {
+  const response = await fetch('/api/story/step', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ definition }),
+  });
+  if (!response.ok) {
+    throw new Error(`Story page request failed (${response.status})`);
+  }
+  const data = (await response.json()) as StoryPage;
+  return data;
+}
+
 // Handle story creation
 createStoryBtn.addEventListener('click', async () => {
   const length = (document.querySelector('input[name="length"]:checked') as HTMLInputElement | null)?.value;
@@ -219,7 +232,46 @@ createStoryBtn.addEventListener('click', async () => {
     removeLoadingOverlay(overlay);
   }
 
-  // Navigate to story page
+  // If we have a definition, generate the opening scene (first page) with a separate loader
+  const current = store.getState().story;
+  const haveDefinition = Boolean(current?.definition);
+  if (haveDefinition) {
+    const overlay2 = createLoadingOverlay('Building opening scene...');
+    let progress2 = 8;
+    const barFill2 = overlay2.querySelector('#story-loading-bar-fill') as HTMLElement | null;
+    const intervalId2 = window.setInterval(() => {
+      if (!barFill2) return;
+      progress2 = Math.min(92, progress2 + Math.max(1, Math.floor(Math.random() * 5)));
+      barFill2.style.width = `${progress2}%`;
+    }, 240);
+    try {
+      updateLoadingMessage(overlay2, 'Generating opening page...');
+      const firstPage = await fetchFirstStoryPage(current!.definition!);
+      // Construct minimal structure for the renderer: cover from definition, first page only (no back cover yet)
+      const frontCover = {
+        title: current!.definition!.title,
+        tagline: current!.definition!.tagline,
+        image: current!.definition!.image
+          ? { alt: current!.definition!.image.alt }
+          : undefined,
+      };
+      store.updateStory({
+        structure: ({ frontCover, pages: [firstPage] } as unknown as StoryStructure),
+      });
+    } catch (error) {
+      console.warn('Failed to generate first story page:', error);
+      // Keep whatever we have; story page will fallback to default structure
+    } finally {
+      window.clearInterval(intervalId2);
+      if (barFill2) {
+        barFill2.style.width = '100%';
+        await new Promise(resolve => setTimeout(resolve, 180));
+      }
+      removeLoadingOverlay(overlay2);
+    }
+  }
+
+  // Navigate to story page (after first page attempt)
   window.location.href = '/views/story.html';
 });
 

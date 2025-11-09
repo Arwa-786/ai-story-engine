@@ -1,7 +1,7 @@
 /**
  * Story Display Page
  */
-import type { Story, StoryStructure, StoryPage, OptionObject, FrontCover } from './types';
+import type { Story, StoryStructure, StoryPage, OptionObject, FrontCover, StoryDefinition } from './types';
 
 /**
  * Lightweight localStorage helpers kept internal to story page + store.
@@ -663,8 +663,9 @@ function buildStoryFromStore(): void {
 
   // Pages
   const total = structure.pages.length;
+  const hasBackCover = Boolean((structure as unknown as { backCover?: unknown }).backCover);
   structure.pages.forEach((p, idx) => {
-    const isFinal = idx === total - 1;
+    const isFinal = idx === total - 1 && hasBackCover;
     const el = buildStoryPageElement(p, isFinal);
     bookContainer!.appendChild(el);
   });
@@ -695,6 +696,10 @@ function initializeStoryPage(): void {
   }
   // Attach initial handlers for options
   attachOptionHandlers();
+  // If no pages yet but we have a definition, attempt to fetch the opening page here
+  maybeFetchOpeningPageIfMissing().catch(err => {
+    console.warn('Opening page generation failed on story page:', err);
+  });
   // Handle cover page click
   const coverPage = document.getElementById('coverPage');
   if (coverPage) {
@@ -739,6 +744,125 @@ function initializeStoryPage(): void {
 
 function isStoryPage(): boolean {
   return !!document.querySelector('.book-container') || !!document.getElementById('coverPage');
+}
+
+/**
+ * Fallback: fetch the first story page on the story screen if missing
+ */
+async function maybeFetchOpeningPageIfMissing(): Promise<void> {
+  const current = store.getState().story;
+  const hasAnyPage = Boolean(current?.structure?.pages && current.structure.pages.length > 0);
+  const hasDefinition = Boolean(current?.definition);
+  if (hasAnyPage || !hasDefinition) return;
+
+  const overlay = createInlineLoadingOverlay('Generating opening scene...');
+  try {
+    const firstPage = await fetchFirstStoryPage(current!.definition!);
+    // Build/update minimal structure
+    const frontCover: FrontCover = {
+      title: current!.definition!.title,
+      tagline: current!.definition!.tagline,
+      image: current!.definition!.image
+        ? { alt: current!.definition!.image.alt }
+        : undefined,
+    };
+    const existingPages = current!.structure?.pages ?? [];
+    store.updateStory({
+      structure: ({ frontCover, pages: existingPages.length > 0 ? existingPages : [firstPage] } as unknown as StoryStructure),
+    });
+    // Rebuild the DOM with new data
+    buildStoryFromStore();
+    loadStoryMetadata();
+    preloadStoryImages();
+    const pagesNow = getPages();
+    if (pagesNow.length > 0) {
+      pagesNow[0].classList.add('active');
+    }
+    attachOptionHandlers();
+  } finally {
+    removeInlineLoadingOverlay(overlay);
+  }
+}
+
+async function fetchFirstStoryPage(definition: StoryDefinition): Promise<StoryPage> {
+  const response = await fetch('/api/story/step', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ definition }),
+  });
+  if (!response.ok) {
+    throw new Error(`Story page request failed (${response.status})`);
+  }
+  const data = (await response.json()) as StoryPage;
+  return data;
+}
+
+function createInlineLoadingOverlay(message: string): HTMLElement {
+  const overlay = document.createElement('div');
+  overlay.id = 'story-opening-overlay';
+  overlay.style.position = 'fixed';
+  overlay.style.inset = '0';
+  overlay.style.background = 'rgba(15, 14, 12, 0.6)';
+  overlay.style.display = 'flex';
+  overlay.style.alignItems = 'center';
+  overlay.style.justifyContent = 'center';
+  overlay.style.zIndex = '9999';
+
+  const panel = document.createElement('div');
+  panel.style.background = '#fff';
+  panel.style.borderRadius = '12px';
+  panel.style.boxShadow = '0 10px 30px rgba(0,0,0,0.2)';
+  panel.style.padding = '18px 22px';
+  panel.style.minWidth = '240px';
+  panel.style.maxWidth = '340px';
+  panel.style.display = 'flex';
+  panel.style.flexDirection = 'column';
+  panel.style.alignItems = 'center';
+  panel.style.gap = '10px';
+
+  const barWrap = document.createElement('div');
+  barWrap.style.width = '100%';
+  barWrap.style.height = '8px';
+  barWrap.style.background = '#f3f4f6';
+  barWrap.style.borderRadius = '999px';
+  barWrap.style.overflow = 'hidden';
+  const barFill = document.createElement('div');
+  barFill.style.width = '24%';
+  barFill.style.height = '100%';
+  barFill.style.background = '#111827';
+  barFill.style.transition = 'width 260ms ease';
+  barFill.style.borderRadius = '999px';
+  barWrap.appendChild(barFill);
+
+  const text = document.createElement('div');
+  text.textContent = message;
+  text.style.fontSize = '13px';
+  text.style.fontWeight = '600';
+  text.style.color = '#111827';
+  text.style.textAlign = 'center';
+
+  panel.appendChild(barWrap);
+  panel.appendChild(text);
+  overlay.appendChild(panel);
+  document.body.appendChild(overlay);
+  let progress = 24;
+  const id = window.setInterval(() => {
+    progress = Math.min(94, progress + Math.max(1, Math.floor(Math.random() * 5)));
+    barFill.style.width = `${progress}%`;
+  }, 260);
+  overlay.dataset.intervalId = String(id);
+  return overlay;
+}
+
+function removeInlineLoadingOverlay(overlay: HTMLElement | null): void {
+  if (!overlay) return;
+  const idRaw = overlay.dataset.intervalId;
+  if (idRaw) {
+    window.clearInterval(Number(idRaw));
+  }
+  if (overlay.parentElement) {
+    overlay.parentElement.removeChild(overlay);
+  }
 }
 
 /**

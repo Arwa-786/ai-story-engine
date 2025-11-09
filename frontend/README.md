@@ -35,7 +35,6 @@ Output in `dist/` folder.
 ai-story-engine/
 ├── src/
 │   ├── types/
-│   │   └── html2pdf.d.ts    # Type definitions for html2pdf library
 │   ├── types.ts              # Core type definitions
 │   ├── index.ts              # Story creation page logic
 │   └── story.ts              # Story display & interaction logic
@@ -57,7 +56,7 @@ ai-story-engine/
 - **Beautiful Book UI** - Classic book design with page flip animations
 - **Multiple Page Types** - Cover, branching story pages (single/multiple options), conversations, endings
 - **Dynamic Back Cover** - Automatically generated with story summary and metadata
-- **PDF Export** - Export your story to PDF format
+- **PDF Export (placeholder)** - Feature planned; currently a no-op button
 - **Responsive Design** - Works on desktop, tablet, and mobile
 - **TypeScript** - Fully typed codebase for reliability
 - **AI Integration Ready** - Built to integrate with Gemini API and image generation
@@ -97,7 +96,7 @@ Open `test-flip.html` to see all page types in action with detailed examples.
 
 - **Frontend**: TypeScript, HTML5, CSS3
 - **Build Tool**: Vite
-- **PDF Export**: html2pdf.js
+- **PDF Export**: TBD
 - **AI Integration**: Gemini API (planned)
 - **Image Generation**: Nanobanana/imagegen (planned)
 

@@ -10,8 +10,8 @@
     "test": "tsx src/test.ts"
   },
   "dependencies": {
-    "axios": "^1.13.2",
-    "html2pdf.js": "^0.10.1"
+    "axios": "^1.13.2"
+    
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

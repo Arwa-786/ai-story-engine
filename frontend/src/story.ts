@@ -1,29 +1,108 @@
 /**
  * Story Display Page
  */
+import type { Story, StoryStructure, StoryPage, OptionObject, FrontCover } from './types';
 
-// Local lightweight metadata type (decoupled from shared types)
-type CoverMetadata = {
-  title: string;
-  author?: string;
-  subtitle?: string;
-  coverImageUrl?: string;
-  genre?: string;
-  createdAt?: string;
-  startedAt?: string;
-  summary?: string;
+/**
+ * Lightweight localStorage helpers kept internal to story page + store.
+ */
+function readFromLocalStorage<T>(key: string): T | null {
+  if (typeof window === 'undefined' || !window.localStorage) return null;
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return null;
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+}
+
+function writeToLocalStorage<T>(key: string, value: T | null): void {
+  if (typeof window === 'undefined' || !window.localStorage) return;
+  try {
+    if (value === null) {
+      window.localStorage.removeItem(key);
+    } else {
+      window.localStorage.setItem(key, JSON.stringify(value));
+    }
+  } catch {
+    // Ignore storage failures (e.g., quota)
+  }
+}
+
+/**
+ * Combined Global Store (merged from store.ts)
+ */
+type StoreState = {
+  story: Story | null;
 };
+
+const STORAGE_KEYS = {
+  currentStory: 'currentStory',
+} as const;
+
+class GlobalStore {
+  private static instance: GlobalStore | null = null;
+  private state: StoreState;
+
+  private constructor() {
+    this.state = { story: null };
+  }
+
+  static getInstance(): GlobalStore {
+    if (!GlobalStore.instance) {
+      GlobalStore.instance = new GlobalStore();
+      GlobalStore.instance.initializeFromStorage();
+    }
+    return GlobalStore.instance;
+  }
+
+  getState(): StoreState {
+    return this.state;
+  }
+
+  initializeFromStorage(): void {
+    const stored = readFromLocalStorage<Story>(STORAGE_KEYS.currentStory);
+    if (stored) {
+      this.state.story = stored;
+    }
+  }
+
+  setStory(story: Story | null): void {
+    this.state = { ...this.state, story };
+    writeToLocalStorage(STORAGE_KEYS.currentStory, story);
+  }
+
+  updateStory(partial: Partial<Story>): void {
+    if (!this.state.story) return;
+    const updated: Story = {
+      ...this.state.story,
+      ...partial,
+      updatedAt: new Date().toISOString(),
+    };
+    this.setStory(updated);
+  }
+
+  clear(): void {
+    this.setStory(null);
+  }
+}
+
+export const store = GlobalStore.getInstance();
 
 // State
 let currentPageIndex = 0;
 let storyStartTime: number = Date.now();
-const pages = document.querySelectorAll<HTMLElement>('.page');
-const bookContainer = document.querySelector<HTMLElement>('.book-container');
+let bookContainer: HTMLElement | null = null;
+
+function getPages(): NodeListOf<HTMLElement> {
+  return document.querySelectorAll<HTMLElement>('.page');
+}
 
 /**
  * Sets the cover image and metadata dynamically
  */
-function setCoverImage(metadata: CoverMetadata): void {
+function setCoverImage(metadata: { title?: string; subtitle?: string; coverImageUrl?: string }): void {
   const coverImage = document.getElementById('coverImage') as HTMLImageElement;
   const coverTitle = document.getElementById('coverTitle') as HTMLElement;
   const coverSubtitle = document.getElementById('coverSubtitle') as HTMLElement;
@@ -45,7 +124,7 @@ function setCoverImage(metadata: CoverMetadata): void {
 /**
  * Update cover footer details (author, publish date)
  */
-function setCoverDetails(metadata: CoverMetadata): void {
+function setCoverDetails(metadata: { author?: string; createdAt?: string }): void {
   const coverAuthor = document.getElementById('coverAuthor') as HTMLElement | null;
   const coverPublishDate = document.getElementById('coverPublishDate') as HTMLElement | null;
 
@@ -95,51 +174,58 @@ function generateCoverImageUrl(storyInput: string): string {
 }
 
 /**
- * Load story metadata from URL parameters or localStorage
+ * Load story metadata from Story + prior localStorage state
  */
 function loadStoryMetadata(): void {
   try {
-    const storedConfig = localStorage.getItem('storyConfig');
     const storedMetadata = localStorage.getItem('storyMetadata');
-    const existingMetadata = storedMetadata ? (JSON.parse(storedMetadata) as CoverMetadata) : null;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const existingMetadata = storedMetadata ? (JSON.parse(storedMetadata) as any) : null;
     const nowIso = new Date().toISOString();
+    const story = store.getState().story;
 
-    if (storedConfig) {
-      const config = JSON.parse(storedConfig);
-      const coverImageUrl = generateCoverImageUrl(config.input);
-
-      const metadata: CoverMetadata = {
-        title: (config.input || existingMetadata?.title || 'An Untitled Story').trim(),
-        subtitle: existingMetadata?.subtitle || 'An AI Generated Adventure',
-        coverImageUrl,
-        genre: config.inputType === 'random' ? config.input : existingMetadata?.genre,
-        createdAt: existingMetadata?.createdAt || nowIso,
-        startedAt: existingMetadata?.startedAt || nowIso,
-        author: existingMetadata?.author || 'You'
-      };
-
-      setCoverImage(metadata);
-      setCoverDetails(metadata);
-      localStorage.setItem('storyMetadata', JSON.stringify(metadata));
-      return;
-    }
+    const inputFromStory = story?.configuration?.description?.trim();
+    const sourceInput = (inputFromStory || '').trim();
 
     const coverTitleElement = document.getElementById('coverTitle');
     const coverSubtitleElement = document.getElementById('coverSubtitle');
     const coverImageElement = document.getElementById('coverImage') as HTMLImageElement | null;
 
-    const fallbackMetadata: CoverMetadata = {
-      title: coverTitleElement?.textContent?.trim() || existingMetadata?.title || 'An Untitled Story',
-      subtitle: coverSubtitleElement?.textContent?.trim() || existingMetadata?.subtitle || 'An AI Generated Adventure',
-      coverImageUrl: coverImageElement?.getAttribute('src') ?? existingMetadata?.coverImageUrl,
-      createdAt: existingMetadata?.createdAt || nowIso,
+    // Derive metadata preferentially from Story, then DOM/localStorage
+    const resolvedTitle =
+      story?.definition?.title?.trim() ||
+      story?.structure?.frontCover?.title?.trim() ||
+      sourceInput ||
+      coverTitleElement?.textContent?.trim() ||
+      existingMetadata?.title ||
+      'An Untitled Story';
+
+    const resolvedSubtitle =
+      story?.structure?.frontCover?.tagline ||
+      coverSubtitleElement?.textContent?.trim() ||
+      existingMetadata?.subtitle ||
+      'An AI Generated Adventure';
+
+    const computedCoverUrl =
+      (sourceInput ? generateCoverImageUrl(sourceInput) : undefined) ||
+      coverImageElement?.getAttribute('src') ||
+      existingMetadata?.coverImageUrl;
+
+    const resolvedGenre = story?.definition?.genre;
+
+    const metadata = {
+      title: resolvedTitle,
+      subtitle: resolvedSubtitle,
+      coverImageUrl: computedCoverUrl,
+      genre: resolvedGenre,
+      createdAt: existingMetadata?.createdAt || story?.createdAt || nowIso,
       startedAt: existingMetadata?.startedAt || nowIso,
       author: existingMetadata?.author || 'You'
     };
 
-    setCoverImage(fallbackMetadata);
-    setCoverDetails(fallbackMetadata);
-    localStorage.setItem('storyMetadata', JSON.stringify(fallbackMetadata));
+    setCoverImage(metadata);
+    setCoverDetails(metadata);
+    localStorage.setItem('storyMetadata', JSON.stringify(metadata));
   } catch (error) {
     console.error('Error loading story metadata:', error);
   }
@@ -236,32 +322,19 @@ function generateStorySummary(input: string): string {
  */
 function setupBackCover(): void {
   try {
-    const storedConfig = localStorage.getItem('storyConfig');
     const storedMetadata = localStorage.getItem('storyMetadata');
-    
-    let config: { input: string } | null = null;
-    let metadata: StoryMetadata | null = null;
-    
-    if (storedConfig) {
-      config = JSON.parse(storedConfig);
-      metadata = storedMetadata ? (JSON.parse(storedMetadata) as StoryMetadata) : null;
-    } else {
-      // Fallback for test environment - use a default configuration
-      config = { input: 'forest fantasy adventure' }; // Default that matches test page
-      metadata = {
-        title: 'Test Story',
-        subtitle: 'Testing All Page Types',
-        coverImageUrl: 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=1200&h=800&fit=crop',
-        createdAt: new Date().toISOString(),
-        startedAt: new Date().toISOString(),
-        author: 'You'
-      };
-    }
-    
-    if (config) {
+    const story = store.getState().story;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const metadata: any | null = storedMetadata ? (JSON.parse(storedMetadata) as any) : null;
+
+    // Resolve input used to derive imagery and summaries
+    const input = (story?.configuration?.description?.trim() || 'forest fantasy adventure');
+
+    if (input) {
       // Set back cover image (use a complementary image, not the same as front)
       const backCoverImage = document.getElementById('backCoverImage') as HTMLImageElement;
-      const backImageUrl = generateBackCoverImageUrl(config.input);
+      const backImageUrl = generateBackCoverImageUrl(input);
       if (backCoverImage) {
         backCoverImage.src = backImageUrl;
       }
@@ -269,20 +342,25 @@ function setupBackCover(): void {
       // Set summary
       const summaryText = document.getElementById('storySummary');
       if (summaryText) {
-        summaryText.textContent = generateStorySummary(config.input);
+        const structuredSummary = story?.structure?.backCover?.summary;
+        summaryText.textContent = structuredSummary || generateStorySummary(input);
       }
 
       // Set back cover book title
       const backCoverTitle = document.getElementById('backBookTitle');
       if (backCoverTitle) {
-        const fallbackTitle = config.input?.trim() || 'An Untitled Story';
-        const resolvedTitle = metadata?.title?.trim() || fallbackTitle;
+        const fallbackTitle = input?.trim() || 'An Untitled Story';
+        const resolvedTitle =
+          metadata?.title?.trim() ||
+          story?.definition?.title?.trim() ||
+          story?.structure?.frontCover?.title?.trim() ||
+          fallbackTitle;
         backCoverTitle.textContent = resolvedTitle;
       }
 
       const primaryAuthorLine = document.getElementById('backCoverPrimaryAuthor');
       const authorContainer = document.getElementById('backCoverAuthorValue');
-      const resolvedAuthor = metadata?.author?.trim() || 'You';
+      const resolvedAuthor = (metadata?.author?.trim() || 'You');
       const authorDisplay = resolvedAuthor === 'You' ? 'You (Story Creator)' : resolvedAuthor;
 
       if (primaryAuthorLine) {
@@ -328,15 +406,337 @@ function preloadStoryImages(): void {
   });
 }
 
-// Load metadata on page load
-loadStoryMetadata();
+/**
+ * DOM helpers and builders
+ */
+function createElement<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string): HTMLElementTagNameMap[K] {
+  const el = document.createElement(tag);
+  if (className) el.className = className;
+  return el;
+}
 
-// Preload all story images immediately
-preloadStoryImages();
+function createParagraphs(text: string): HTMLElement {
+  const container = createElement('div', 'story-text');
+  const paragraphs = text.split(/\n{2,}/).map(t => t.trim()).filter(Boolean);
+  if (paragraphs.length === 0) {
+    const p = document.createElement('p');
+    p.textContent = text.trim();
+    container.appendChild(p);
+    return container;
+  }
+  paragraphs.forEach(t => {
+    const p = document.createElement('p');
+    p.textContent = t;
+    container.appendChild(p);
+  });
+  return container;
+}
 
-// Initialize first page
-if (pages.length > 0) {
-  pages[0].classList.add('active');
+function buildCoverElement(frontCover?: FrontCover): HTMLElement {
+  const page = createElement('div', 'page active') as HTMLElement;
+  page.id = 'coverPage';
+  page.dataset.page = 'cover';
+
+  const cover = createElement('div', 'book-cover');
+
+  const img = createElement('img', 'book-cover-image') as HTMLImageElement;
+  img.id = 'coverImage';
+  img.alt = frontCover?.title ? `${frontCover.title} - Cover Image` : 'Story Cover';
+  img.loading = 'eager';
+  if (frontCover?.image?.url) img.src = frontCover.image.url;
+
+  const content = createElement('div', 'cover-content');
+  const title = createElement('h1', 'book-title');
+  title.id = 'coverTitle';
+  title.textContent = frontCover?.title || 'An Untitled Story';
+  const subtitle = createElement('div', 'cover-subtitle');
+  subtitle.id = 'coverSubtitle';
+  subtitle.textContent = frontCover?.tagline || 'An AI Generated Adventure';
+  const tap = createElement('div', 'tap-hint');
+  tap.textContent = 'Tap to Continue';
+  content.appendChild(title);
+  content.appendChild(subtitle);
+  content.appendChild(tap);
+
+  const footer = createElement('div', 'cover-footer');
+  const author = createElement('div', 'cover-author');
+  author.id = 'coverAuthor';
+  author.textContent = 'Written by You';
+  const publish = createElement('div', 'cover-publish-date');
+  publish.id = 'coverPublishDate';
+  publish.textContent = 'Published —';
+  footer.appendChild(author);
+  footer.appendChild(publish);
+
+  cover.appendChild(img);
+  cover.appendChild(content);
+  cover.appendChild(footer);
+  page.appendChild(cover);
+  return page;
+}
+
+function renderOptionButton(option: OptionObject, isLast: boolean = false): HTMLButtonElement {
+  const btn = createElement('button', 'story-option') as HTMLButtonElement;
+  btn.dataset.option = option.id;
+  if (isLast) {
+    btn.dataset.isLast = 'true';
+  }
+  const span = createElement('span', 'option-text');
+  span.textContent = option.text;
+  btn.appendChild(span);
+  return btn;
+}
+
+function buildBranchConversation(branchOptions: OptionObject[], isFinal: boolean): HTMLElement {
+  const response = createElement('div', 'conversation-response hidden');
+  const divider = createElement('div', 'response-divider');
+  response.appendChild(divider);
+  // Optional: a small prompt area could go here
+  const optionsWrap = createElement('div', 'story-options');
+  branchOptions.forEach(o => {
+    optionsWrap.appendChild(renderOptionButton(o, isFinal));
+  });
+  response.appendChild(optionsWrap);
+  return response;
+}
+
+function buildStoryPageElement(pageData: StoryPage, isFinal: boolean): HTMLElement {
+  const page = createElement('div', 'page') as HTMLElement;
+  page.dataset.page = 'story';
+  if (isFinal) page.dataset.isFinal = 'true';
+
+  // Infer page type
+  const hasBranch = pageData.options.some(o => (o.action as unknown as { type?: string })?.type === 'branch');
+  const pageType = hasBranch
+    ? 'conversation'
+    : (pageData.options.length === 1 ? 'single-option' : 'multiple-options');
+  page.dataset.pageType = pageType;
+
+  const pageContent = createElement('div', 'page-content');
+  const storyContent = createElement('div', 'story-content');
+
+  // Text
+  storyContent.appendChild(createParagraphs(pageData.text));
+
+  // Image
+  if (pageData.image?.url) {
+    const imageWrap = createElement('div', 'story-image');
+    const img = document.createElement('img');
+    img.src = pageData.image.url;
+    img.alt = pageData.image.alt || 'Story scene';
+    imageWrap.appendChild(img);
+    storyContent.appendChild(imageWrap);
+  }
+
+  // Options
+  if (pageData.options?.length) {
+    const optionsWrap = createElement('div', 'story-options');
+    pageData.options.forEach(opt => {
+      optionsWrap.appendChild(renderOptionButton(opt, isFinal));
+    });
+    storyContent.appendChild(optionsWrap);
+
+    // Conversation branch (single level)
+    if (hasBranch) {
+      const firstBranch = pageData.options.find(o => (o.action as unknown as { type?: string })?.type === 'branch');
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const branch = firstBranch?.action as any;
+      if (branch?.options && Array.isArray(branch.options) && branch.options.length > 0) {
+        const conv = buildBranchConversation(branch.options as OptionObject[], isFinal);
+        storyContent.appendChild(conv);
+      }
+    }
+  }
+
+  pageContent.appendChild(storyContent);
+  page.appendChild(pageContent);
+
+  // Final page back content for flip-to-back-cover
+  if (isFinal) {
+    const back = createElement('div', 'page-back-content');
+    const bc = createElement('div', 'back-cover');
+    const img = createElement('img', 'back-cover-image') as HTMLImageElement;
+    img.id = 'backCoverImage';
+    img.alt = 'Back Cover';
+    img.loading = 'lazy';
+    bc.appendChild(img);
+
+    const bcContent = createElement('div', 'back-cover-content');
+    const summary = createElement('div', 'story-summary');
+    const h1 = createElement('h1', 'back-cover-title');
+    h1.id = 'backBookTitle';
+    h1.textContent = '';
+    const h2 = createElement('h2', 'summary-title');
+    h2.textContent = 'Summary';
+    const p = createElement('p', 'summary-text');
+    p.id = 'storySummary';
+    summary.appendChild(h1);
+    summary.appendChild(h2);
+    summary.appendChild(p);
+
+    const metadataWrap = createElement('div', 'book-metadata');
+    const authorSection = createElement('div', 'metadata-section');
+    const authorLabel = createElement('div', 'metadata-label');
+    authorLabel.textContent = 'Written by';
+    const authorValue = createElement('div', 'metadata-value');
+    authorValue.id = 'backCoverAuthorValue';
+    const primaryAuthor = createElement('div', 'author-line');
+    primaryAuthor.id = 'backCoverPrimaryAuthor';
+    primaryAuthor.textContent = 'You (Story Creator)';
+    authorValue.appendChild(primaryAuthor);
+    authorSection.appendChild(authorLabel);
+    authorSection.appendChild(authorValue);
+
+    const pubSection = createElement('div', 'metadata-section');
+    const pubLabel = createElement('div', 'metadata-label');
+    pubLabel.textContent = 'Published';
+    const pubValue = createElement('div', 'metadata-value');
+    pubValue.id = 'publishDate';
+    pubSection.appendChild(pubLabel);
+    pubSection.appendChild(pubValue);
+
+    const publisherSection = createElement('div', 'metadata-section');
+    const publisherLabel = createElement('div', 'metadata-label');
+    publisherLabel.textContent = 'Publisher';
+    const publisherValue = createElement('div', 'metadata-value');
+    publisherValue.textContent = 'AI Story Engine';
+    publisherSection.appendChild(publisherLabel);
+    publisherSection.appendChild(publisherValue);
+
+    metadataWrap.appendChild(authorSection);
+    metadataWrap.appendChild(pubSection);
+    metadataWrap.appendChild(publisherSection);
+
+    bcContent.appendChild(summary);
+    bcContent.appendChild(metadataWrap);
+
+    bc.appendChild(bcContent);
+    back.appendChild(bc);
+    page.appendChild(back);
+  }
+
+  return page;
+}
+
+function buildDefaultStructure(): StoryStructure {
+  let title = store.getState().story?.definition?.title?.trim() || 'An Untitled Story';
+  return {
+    frontCover: {
+      title,
+      tagline: 'An AI Generated Adventure',
+    },
+    pages: [
+      {
+        id: 'p1',
+        text: 'Your journey begins...',
+        options: [{ id: '1', text: 'Continue', action: { type: 'goToNextPage' } }],
+      },
+      {
+        id: 'p2',
+        text: 'The path ahead opens to endless possibilities.',
+        options: [{ id: '1', text: 'Finish', action: { type: 'goToNextPage' } }],
+      },
+    ],
+    backCover: {
+      summary: '',
+    },
+  };
+}
+
+function buildStoryFromStore(): void {
+  bookContainer = document.querySelector<HTMLElement>('.book-container');
+  if (!bookContainer) return;
+
+  // Preserve the left-page, clear other dynamic content
+  const leftPage = bookContainer.querySelector('.left-page');
+  bookContainer.innerHTML = '';
+  if (leftPage) bookContainer.appendChild(leftPage);
+
+  const story = store.getState().story;
+  const structure: StoryStructure = story?.structure || buildDefaultStructure();
+
+  // Cover
+  const cover = buildCoverElement(structure.frontCover);
+  bookContainer.appendChild(cover);
+
+  // Pages
+  const total = structure.pages.length;
+  structure.pages.forEach((p, idx) => {
+    const isFinal = idx === total - 1;
+    const el = buildStoryPageElement(p, isFinal);
+    bookContainer!.appendChild(el);
+  });
+}
+
+function attachOptionHandlers(root: Document | HTMLElement = document): void {
+  const allOptionButtons = root.querySelectorAll<HTMLButtonElement>('.story-option');
+  const optionButtons = Array.from(allOptionButtons).filter(btn => {
+    // Exclude buttons that are inside a .conversation-response element
+    return !btn.closest('.conversation-response');
+  });
+  optionButtons.forEach(btn => {
+    btn.addEventListener('click', handleOptionClick);
+  });
+}
+
+function initializeStoryPage(): void {
+  // Build DOM from store/structure first
+  buildStoryFromStore();
+  // Load metadata after DOM is present
+  loadStoryMetadata();
+  // Preload all story images
+  preloadStoryImages();
+  // Initialize first page
+  const pagesNow = getPages();
+  if (pagesNow.length > 0) {
+    pagesNow[0].classList.add('active');
+  }
+  // Attach initial handlers for options
+  attachOptionHandlers();
+  // Handle cover page click
+  const coverPage = document.getElementById('coverPage');
+  if (coverPage) {
+    coverPage.addEventListener('click', flipToNextPage);
+  }
+  // Keyboard navigation
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'ArrowRight' || event.key === ' ') {
+      const pagesNowKey = getPages();
+      const currentPage = pagesNowKey[currentPageIndex];
+      const pageType = currentPage?.dataset.page;
+      
+      if (pageType === 'cover') {
+        event.preventDefault();
+        flipToNextPage();
+      }
+    }
+    // Toggle debug overlay with backtick `
+    if (event.code === 'Backquote' || event.key === '`') {
+      event.preventDefault();
+      toggleDebugMenu();
+    }
+  });
+  // Add cursor pointer to clickable pages
+  if (coverPage) {
+    coverPage.addEventListener('mouseenter', () => {
+      coverPage.style.cursor = 'pointer';
+    });
+  }
+  // Attach event listeners to control buttons
+  const restartButton = document.getElementById('restartButton');
+  const exportButton = document.getElementById('exportButton');
+  
+  if (restartButton) {
+    restartButton.addEventListener('click', restartBook);
+  }
+  
+  if (exportButton) {
+    exportButton.addEventListener('click', exportToPDF);
+  }
+}
+
+function isStoryPage(): boolean {
+  return !!document.querySelector('.book-container') || !!document.getElementById('coverPage');
 }
 
 /**
@@ -344,7 +744,8 @@ if (pages.length > 0) {
  * No next page will appear - right side stays empty
  */
 function flipToBackCover(): void {
-  const currentPage = pages[currentPageIndex];
+  const pagesNow = getPages();
+  const currentPage = pagesNow[currentPageIndex];
   
   if (!currentPage) {
     console.error('No current page found');
@@ -424,12 +825,13 @@ function flipToBackCover(): void {
 
 // Flip to next page
 function flipToNextPage(): void {
-  if (currentPageIndex >= pages.length - 1) {
+  const pagesNow = getPages();
+  if (currentPageIndex >= pagesNow.length - 1) {
     return;
   }
 
-  const currentPage = pages[currentPageIndex];
-  const nextPage = pages[currentPageIndex + 1];
+  const currentPage = pagesNow[currentPageIndex];
+  const nextPage = pagesNow[currentPageIndex + 1];
 
   // Make next page visible behind the current page before animation starts
   currentPage.classList.remove('active');
@@ -449,12 +851,6 @@ function flipToNextPage(): void {
     
     currentPageIndex++;
   }, 1200); // Match animation duration
-}
-
-// Handle cover page click
-const coverPage = document.getElementById('coverPage');
-if (coverPage) {
-  coverPage.addEventListener('click', flipToNextPage);
 }
 
 /**
@@ -587,37 +983,19 @@ function handleOptionClick(event: Event): void {
   }
 }
 
-// Attach handlers to initially visible option buttons (not in hidden conversation responses)
-// Use a more reliable method to exclude buttons inside conversation responses
-const allOptionButtons = document.querySelectorAll<HTMLButtonElement>('.story-option');
-const optionButtons = Array.from(allOptionButtons).filter(btn => {
-  // Exclude buttons that are inside a .conversation-response element
-  return !btn.closest('.conversation-response');
-});
+// Handlers are attached after dynamic DOM build in initializeStoryPage
 
-optionButtons.forEach((button) => {
-  const btn = button as HTMLButtonElement;
-  button.addEventListener('click', handleOptionClick);
-});
-
-// Keyboard navigation
-document.addEventListener('keydown', (event) => {
-  if (event.key === 'ArrowRight' || event.key === ' ') {
-    const currentPage = pages[currentPageIndex];
-    const pageType = currentPage?.dataset.page;
-    
-    if (pageType === 'cover') {
-      event.preventDefault();
-      flipToNextPage();
+// Initialize story page only when appropriate
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', () => {
+    if (isStoryPage()) {
+      initializeStoryPage();
     }
-  }
-});
-
-// Add cursor pointer to clickable pages
-if (coverPage) {
-  coverPage.addEventListener('mouseenter', () => {
-    coverPage.style.cursor = 'pointer';
   });
+} else {
+  if (isStoryPage()) {
+    initializeStoryPage();
+  }
 }
 
 /**
@@ -641,8 +1019,7 @@ function restartBook(): void {
 }
 
 /**
- * Export the book to PDF - each page becomes a PDF page
- * Uses html2pdf.js library for robust PDF generation
+ * Export the book to PDF - placeholder (disabled)
  */
 async function exportToPDF(): Promise<void> {
   const exportButton = document.getElementById('exportButton');
@@ -650,187 +1027,19 @@ async function exportToPDF(): Promise<void> {
     exportButton.classList.add('loading');
     const buttonText = exportButton.querySelector('span');
     if (buttonText) {
-      buttonText.textContent = 'Generating PDF...';
+      buttonText.textContent = 'Preparing...';
     }
   }
-  
-  try {
-    // Dynamically import html2pdf
-    const html2pdf = (await import('html2pdf.js')).default;
-    
-    // Get all pages
-    const allPages = Array.from(pages);
-    
-    // Get story metadata for filename
-    let storyTitle = 'Story';
-    try {
-      const storedConfig = localStorage.getItem('storyConfig');
-      const storedMetadata = localStorage.getItem('storyMetadata');
-      
-      if (storedMetadata) {
-        const metadata = JSON.parse(storedMetadata);
-        storyTitle = metadata.title || 'Story';
-      } else if (storedConfig) {
-        const config = JSON.parse(storedConfig);
-        storyTitle = config.input || 'Story';
-      }
-    } catch (error) {
-      console.warn('Could not load story metadata for PDF:', error);
-      storyTitle = 'Test Story'; // Fallback for test environment
-    }
-    
-    // Sanitize filename
-    const filename = `${storyTitle.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.pdf`;
-    
-    // Create a temporary container for rendering pages
-    const tempContainer = document.createElement('div');
-    tempContainer.style.position = 'absolute';
-    tempContainer.style.left = '-9999px';
-    tempContainer.style.top = '0';
-    tempContainer.style.width = '800px'; // Fixed width for consistent PDF layout
-    tempContainer.style.background = '#fdfbf7';
-    document.body.appendChild(tempContainer);
-    
-    // PDF configuration
-    const opt = {
-      margin: [10, 10, 10, 10],
-      filename: filename,
-      image: { type: 'jpeg', quality: 0.95 },
-      html2canvas: { 
-        scale: 2,
-        useCORS: true,
-        logging: false,
-        backgroundColor: '#fdfbf7'
-      },
-      jsPDF: { 
-        unit: 'mm', 
-        format: 'a4', 
-        orientation: 'portrait' 
-      },
-      pagebreak: { mode: 'avoid-all' }
-    };
-    
-    // Process each page and generate PDF
-    let pdfInstance: any = null;
-    
-    for (let i = 0; i < allPages.length; i++) {
-      const page = allPages[i];
-      
-      // Clone the page for rendering
-      const pageClone = page.cloneNode(true) as HTMLElement;
-      
-      // Ensure all content is visible in the clone
-      pageClone.style.position = 'relative';
-      pageClone.style.width = '100%';
-      pageClone.style.height = 'auto';
-      pageClone.style.minHeight = '600px';
-      pageClone.style.visibility = 'visible';
-      pageClone.style.opacity = '1';
-      pageClone.style.transform = 'none';
-      pageClone.style.borderRadius = '8px';
-      pageClone.style.boxShadow = 'none';
-      pageClone.style.overflow = 'visible';
-      
-      // Handle page-specific content visibility
-      const pageContent = pageClone.querySelector('.page-content') as HTMLElement;
-      const bookCover = pageClone.querySelector('.book-cover') as HTMLElement;
-      const backContent = pageClone.querySelector('.page-back-content') as HTMLElement;
-      
-      if (pageContent) {
-        pageContent.style.opacity = '1';
-        pageContent.style.visibility = 'visible';
-        pageContent.style.overflow = 'visible';
-        pageContent.style.height = 'auto';
-      }
-      
-      if (bookCover) {
-        bookCover.style.opacity = '1';
-        bookCover.style.visibility = 'visible';
-      }
-      
-      // For final page, show back cover content
-      if (page.dataset.isFinal === 'true' && backContent) {
-        backContent.style.display = 'block';
-        backContent.style.opacity = '1';
-        backContent.style.visibility = 'visible';
-        backContent.style.transform = 'none';
-        backContent.style.position = 'absolute';
-        backContent.style.top = '0';
-        backContent.style.left = '0';
-        backContent.style.width = '100%';
-        backContent.style.height = '100%';
-        
-        // Hide front content for final page
-        if (pageContent) pageContent.style.display = 'none';
-      }
-      
-      // Remove animations and transitions
-      const animatedElements = pageClone.querySelectorAll('*');
-      animatedElements.forEach(el => {
-        (el as HTMLElement).style.animation = 'none';
-        (el as HTMLElement).style.transition = 'none';
-      });
-      
-      // Make all images visible and loaded
-      const images = pageClone.querySelectorAll('img');
-      images.forEach(img => {
-        (img as HTMLImageElement).style.opacity = '1';
-        (img as HTMLImageElement).style.visibility = 'visible';
-      });
-      
-      // Clear and add the clone to temp container
-      tempContainer.innerHTML = '';
-      tempContainer.appendChild(pageClone);
-      
-      // Wait for images to load
-      await waitForImages(pageClone);
-      
-      // Add page to PDF
-      if (i === 0) {
-        // First page - initialize PDF
-        pdfInstance = await html2pdf().set(opt).from(tempContainer).toPdf().get('pdf');
-      } else {
-        // Subsequent pages - add new page
-        pdfInstance.addPage();
-        await html2pdf().set(opt).from(tempContainer).toPdf().get('pdf').then((pdf: any) => {
-          // Transfer the rendered content to our main PDF instance
-          const pageCount = pdf.internal.getNumberOfPages();
-          const lastPageContent = pdf.internal.pages[pageCount];
-          pdfInstance.internal.pages.push(lastPageContent);
-        });
-      }
-      
-      // Small delay between pages for stability
-      await new Promise(resolve => setTimeout(resolve, 100));
-    }
-    
-    // Save the PDF
-    if (pdfInstance) {
-      pdfInstance.save(filename);
-    }
-    
-    // Cleanup
-    document.body.removeChild(tempContainer);
 
-    // Reset button state
-    if (exportButton) {
-      exportButton.classList.remove('loading');
-      const buttonText = exportButton.querySelector('span');
-      if (buttonText) {
-        buttonText.textContent = 'Export to PDF';
-      }
-    }
-  } catch (error) {
-    console.error('Error exporting to PDF:', error);
-    alert('Failed to export PDF. Please try again.');
-    
-    // Reset button state
-    if (exportButton) {
-      exportButton.classList.remove('loading');
-      const buttonText = exportButton.querySelector('span');
-      if (buttonText) {
-        buttonText.textContent = 'Export to PDF';
-      }
+  console.log('[PDF Export] Placeholder: PDF export is currently disabled.');
+
+  // Simulate brief work, then reset UI
+  await new Promise(resolve => setTimeout(resolve, 400));
+  if (exportButton) {
+    exportButton.classList.remove('loading');
+    const buttonText = exportButton.querySelector('span');
+    if (buttonText) {
+      buttonText.textContent = 'Export to PDF';
     }
   }
 }
@@ -859,16 +1068,66 @@ function waitForImages(element: HTMLElement): Promise<void> {
   return Promise.all(imagePromises).then(() => {});
 }
 
-// Attach event listeners to control buttons
+/**
+ * =====================================================
+ * DEBUG OVERLAY
+ * Toggle with the backtick (`) key
+ * =====================================================
+ */
+const DEBUG_IDS = {
+  menu: 'debugMenu',
+  content: 'debugContent',
+  close: 'debugCloseBtn',
+  refresh: 'debugRefreshBtn',
+  copy: 'debugCopyBtn',
+} as const;
+
+function updateDebugContent(): void {
+  const contentEl = document.getElementById(DEBUG_IDS.content);
+  if (!contentEl) return;
+  const storyState = store.getState().story;
+  (contentEl as HTMLElement).textContent = JSON.stringify(storyState, null, 2);
+}
+
+function showDebugMenu(): void {
+  const menu = document.getElementById(DEBUG_IDS.menu);
+  if (!menu) return;
+  updateDebugContent();
+  menu.classList.add('visible');
+  menu.setAttribute('aria-hidden', 'false');
+}
+
+function hideDebugMenu(): void {
+  const menu = document.getElementById(DEBUG_IDS.menu);
+  if (!menu) return;
+  menu.classList.remove('visible');
+  menu.setAttribute('aria-hidden', 'true');
+}
+
+function toggleDebugMenu(): void {
+  const menu = document.getElementById(DEBUG_IDS.menu);
+  if (!menu) return;
+  if (menu.classList.contains('visible')) {
+    hideDebugMenu();
+  } else {
+    showDebugMenu();
+  }
+}
+
+// Attach debug menu handlers once DOM is ready (rely on existing init path)
 document.addEventListener('DOMContentLoaded', () => {
-  const restartButton = document.getElementById('restartButton');
-  const exportButton = document.getElementById('exportButton');
-  
-  if (restartButton) {
-    restartButton.addEventListener('click', restartBook);
-  }
-  
-  if (exportButton) {
-    exportButton.addEventListener('click', exportToPDF);
-  }
+  const closeBtn = document.getElementById(DEBUG_IDS.close);
+  const refreshBtn = document.getElementById(DEBUG_IDS.refresh);
+  const copyBtn = document.getElementById(DEBUG_IDS.copy);
+
+  closeBtn?.addEventListener('click', hideDebugMenu);
+  refreshBtn?.addEventListener('click', updateDebugContent);
+  copyBtn?.addEventListener('click', async () => {
+    try {
+      const storyState = store.getState().story;
+      await navigator.clipboard?.writeText(JSON.stringify(storyState, null, 2));
+    } catch {
+      // no-op
+    }
+  });
 });

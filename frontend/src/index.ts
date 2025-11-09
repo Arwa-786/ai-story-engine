@@ -3,7 +3,7 @@
  */
 
 import type { StoryConfiguration, Story, StoryDefinition } from './types';
-import { store } from './store';
+import { store } from './story';
 
 // Get DOM elements with explicit validation for critical inputs
 const customToggle = document.getElementById('customToggle') as HTMLButtonElement | null;

@@ -1,12 +1,15 @@
-import dotenv from "dotenv";
+import { loadEnv } from "../config/env.js";
 import { CloudflareAiClient } from "../clients/cloudflareAiClient.js";
-import { StoryNode } from "../types/story.js";
-import { ensureGeminiClient, getGeminiModelId } from "../ai/geminiClient.js";
+import type { StoryChoice, StoryNode } from "../types/story.js";
+import {
+  ensureGeminiClient,
+  getGeminiModelCandidates,
+  isGeminiModelNotFoundError,
+} from "../ai/geminiClient.js";
 import { generateStoryText } from "./textAgent.js";
 
-// Load environment variables from .env file in project root
-// Path is relative to where the process runs from (backend/ directory)
-dotenv.config({ path: '../.env' });
+// Ensure environment is loaded once per process
+loadEnv();
 
 // Resolve AI provider selection
 type AiProvider = "gemini" | "cloudflare";
@@ -15,7 +18,8 @@ const aiProvider: AiProvider =
   rawProvider === "cloudflare" ? "cloudflare" : "gemini";
 
 // GEMINI CLIENT CONFIGURATION (Lazy init to avoid demanding keys for other providers)
-const geminiModelId = getGeminiModelId();
+const geminiModelCandidates = getGeminiModelCandidates();
+console.log(`🧠 Gemini model preference chain: ${geminiModelCandidates.join(" → ")}`);
 const enableHybridEnrich =
   (process.env.ENABLE_HYBRID_ENRICH ?? "false").toLowerCase() === "true";
 
@@ -147,20 +151,54 @@ function buildStoryPrompt(genre: string): string {
 
 async function generateWithGemini(genre: string): Promise<StoryNode> {
   const prompt = buildStoryPrompt(genre);
-  const model = ensureGeminiClient().getGenerativeModel({
-    model: geminiModelId,
-    generationConfig: {
-      responseMimeType: "application/json"
-    },
-  });
+  const client = ensureGeminiClient();
+  const attemptLog: Array<{ modelId: string; message: string }> = [];
 
-  const result = await model.generateContent(prompt);
-  const response = await result.response;
-  const jsonString = response.text().trim();
+  for (const modelId of geminiModelCandidates) {
+    try {
+      console.log(`🤖 Trying Gemini model "${modelId}" for story generation`);
+      const model = client.getGenerativeModel({
+        model: modelId,
+        generationConfig: {
+          responseMimeType: "application/json",
+        },
+      });
 
-  console.log("✅ Gemini responded with structured JSON");
-  console.log(`📄 Response length: ${jsonString.length} characters`);
-  return JSON.parse(jsonString) as StoryNode;
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      const jsonString = response.text().trim();
+
+      console.log(`✅ Gemini model "${modelId}" responded with structured JSON`);
+      console.log(`📄 Response length: ${jsonString.length} characters`);
+      const parsedPayload = JSON.parse(jsonString) as unknown;
+      return normaliseGeminiStoryPayload(parsedPayload);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : typeof error === "string" ? error : "Unknown error";
+      attemptLog.push({ modelId, message });
+
+      if (isGeminiModelNotFoundError(error)) {
+        console.warn(
+          `🚧 Gemini model "${modelId}" unavailable (${message}). Advancing to next fallback.`,
+        );
+        continue;
+      }
+
+      console.error(
+        `💥 Gemini model "${modelId}" failed with non-recoverable error. Aborting model fallback.`,
+      );
+      throw error;
+    }
+  }
+
+  const summary =
+    attemptLog.length > 0
+      ? attemptLog.map(({ modelId, message }) => `"${modelId}" → ${message}`).join("; ")
+      : "No model attempts were recorded.";
+
+  throw new Error(
+    `No Gemini model in the preference chain could generate story JSON. Attempts: ${summary}`,
+  );
 }
 
 async function generateWithCloudflare(genre: string): Promise<StoryNode> {
@@ -230,4 +268,222 @@ async function enrichStoryTree(root: StoryNode, genre: string): Promise<void> {
       }
     }
   }
+}
+
+function normaliseGeminiStoryPayload(raw: unknown): StoryNode {
+  const candidate = extractRootCandidate(raw);
+  return normaliseStoryNode(candidate, new WeakSet<object>(), "root");
+}
+
+function extractRootCandidate(raw: unknown): unknown {
+  if (!raw || typeof raw !== "object") {
+    return raw;
+  }
+
+  if (Array.isArray(raw)) {
+    return raw[0];
+  }
+
+  const record = raw as Record<string, unknown>;
+  const priorityKeys = ["root", "story", "node", "data"];
+  for (const key of priorityKeys) {
+    if (record[key] && typeof record[key] === "object") {
+      return record[key];
+    }
+  }
+
+  return raw;
+}
+
+function normaliseStoryNode(
+  rawNode: unknown,
+  visited: WeakSet<object>,
+  fallbackId: string,
+): StoryNode {
+  if (!rawNode || typeof rawNode !== "object") {
+    throw new Error("Gemini response invalid: expected an object for story node.");
+  }
+
+  if (visited.has(rawNode as object)) {
+    throw new Error("Gemini response invalid: cyclic reference detected in story graph.");
+  }
+  visited.add(rawNode as object);
+
+  const nodeRecord = rawNode as Record<string, unknown>;
+  const resolvedId = deriveId(nodeRecord, fallbackId);
+  const resolvedText = deriveNodeText(nodeRecord, resolvedId);
+  const resolvedIsEnding = deriveIsEnding(nodeRecord);
+
+  const rawChoices = Array.isArray(nodeRecord.choices) ? nodeRecord.choices : [];
+  const normalisedChoices = rawChoices.map((choice, index) =>
+    normaliseStoryChoice(choice, resolvedId, index),
+  );
+
+  const rawChildren = Array.isArray(nodeRecord.children) ? nodeRecord.children : [];
+  const normalisedChildren =
+    rawChildren.length > 0
+      ? rawChildren.map((child, index) =>
+          normaliseStoryNode(child, visited, `${resolvedId}_child_${index + 1}`),
+        )
+      : undefined;
+
+  const normalisedNode: StoryNode = {
+    id: resolvedId,
+    text: resolvedText,
+    is_ending: resolvedIsEnding,
+    choices: normalisedChoices,
+  };
+
+  if (normalisedChildren && normalisedChildren.length > 0) {
+    normalisedNode.children = normalisedChildren;
+  }
+
+  const imageUrl = deriveOptionalString(nodeRecord, ["imageUrl", "image_url"]);
+  if (imageUrl) {
+    normalisedNode.imageUrl = imageUrl;
+  }
+
+  const audioUrl = deriveOptionalString(nodeRecord, ["audioUrl", "audio_url"]);
+  if (audioUrl) {
+    normalisedNode.audioUrl = audioUrl;
+  }
+
+  return normalisedNode;
+}
+
+function normaliseStoryChoice(
+  rawChoice: unknown,
+  parentId: string,
+  index: number,
+): StoryChoice {
+  if (!rawChoice || typeof rawChoice !== "object") {
+    return {
+      id: `${parentId}_choice_${index + 1}`,
+      text: `Choice ${index + 1}`,
+    };
+  }
+
+  const choiceRecord = rawChoice as Record<string, unknown>;
+  const id =
+    typeof choiceRecord.id === "string" && choiceRecord.id.trim().length > 0
+      ? choiceRecord.id.trim()
+      : `${parentId}_choice_${index + 1}`;
+  const text =
+    typeof choiceRecord.text === "string" && choiceRecord.text.trim().length > 0
+      ? choiceRecord.text
+      : `Choice ${index + 1}`;
+
+  const normalisedChoice: StoryChoice = {
+    id,
+    text,
+  };
+
+  const nextNodeId = deriveOptionalString(choiceRecord, ["nextNodeId", "next_node_id"]);
+  if (nextNodeId) {
+    normalisedChoice.nextNodeId = nextNodeId;
+  }
+
+  return normalisedChoice;
+}
+
+function deriveId(record: Record<string, unknown>, fallbackId: string): string {
+  const rawIdCandidates = ["id", "nodeId", "node_id", "identifier"];
+  for (const key of rawIdCandidates) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+  return fallbackId;
+}
+
+function deriveIsEnding(record: Record<string, unknown>): boolean {
+  const candidates = ["is_ending", "isEnding", "ending"];
+  for (const key of candidates) {
+    if (typeof record[key] === "boolean") {
+      return record[key] as boolean;
+    }
+    if (typeof record[key] === "string") {
+      const normalized = (record[key] as string).trim().toLowerCase();
+      if (normalized === "true") {
+        return true;
+      }
+      if (normalized === "false") {
+        return false;
+      }
+    }
+  }
+
+  // Fallback heuristic: if there are no children or choices, mark as ending.
+  const hasChoices = Array.isArray(record.choices) && record.choices.length > 0;
+  const hasChildren = Array.isArray(record.children) && record.children.length > 0;
+  return !hasChoices && !hasChildren;
+}
+
+function deriveOptionalString(
+  record: Record<string, unknown>,
+  keys: string[],
+): string | undefined {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+  return undefined;
+}
+
+function deriveNodeText(record: Record<string, unknown>, nodeId: string): string {
+  const stringKeys = [
+    "text",
+    "story",
+    "content",
+    "narrative",
+    "body",
+    "description",
+    "passage",
+    "scene",
+  ];
+
+  for (const key of stringKeys) {
+    const value = record[key];
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (trimmed.length > 0) {
+        return trimmed;
+      }
+    }
+  }
+
+  const paragraphCollections = ["paragraphs", "lines", "segments"];
+  for (const key of paragraphCollections) {
+    const value = record[key];
+    if (Array.isArray(value)) {
+      const joined = value
+        .filter((paragraph): paragraph is string => typeof paragraph === "string")
+        .map((paragraph) => paragraph.trim())
+        .filter((paragraph) => paragraph.length > 0)
+        .join("\n\n");
+
+      if (joined.length > 0) {
+        return joined;
+      }
+    }
+  }
+
+  const summaryKeys = ["summary", "overview", "synopsis"];
+  for (const key of summaryKeys) {
+    const value = record[key];
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (trimmed.length > 0) {
+        return trimmed;
+      }
+    }
+  }
+
+  console.warn(
+    `⚠️ Gemini response missing narrative text for node "${nodeId}". Injecting placeholder content.`,
+  );
+  return `Scene placeholder: Gemini omitted narrative text for node "${nodeId}". Please regenerate this branch if richer prose is required.`;
 }
